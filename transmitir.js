@@ -23,41 +23,62 @@ function limparTemporarios() {
 
 (async () => {
   try {
-    // Verifica arquivos essenciais
-    if (!fs.existsSync('stream_info.json') || !fs.existsSync('sequencia_da_transmissao.txt')) {
-      throw new Error('Arquivos stream_info.json ou sequencia_da_transmissao.txt não encontrados.');
+    console.log('📂 Verificando arquivos essenciais...');
+
+    if (!fs.existsSync('stream_info.json')) {
+      throw new Error('Arquivo stream_info.json não encontrado.');
+    }
+
+    if (!fs.existsSync('sequencia_da_transmissao.txt')) {
+      throw new Error('Arquivo sequencia_da_transmissao.txt não encontrado.');
     }
 
     const streamInfo = JSON.parse(fs.readFileSync('stream_info.json', 'utf-8'));
     const streamUrl = streamInfo.stream_url;
 
     if (!streamUrl) {
-      throw new Error('URL de transmissão (stream_url) não encontrado no stream_info.json');
+      throw new Error('URL de transmissão (stream_url) não encontrada no stream_info.json.');
     }
 
     console.log(`🌐 URL de transmissão: ${streamUrl}`);
 
-    // Lê lista sequencial e registra arquivos para limpeza
+    // Lê e processa sequência de vídeos
+    console.log('\n📑 Lendo sequencia_da_transmissao.txt...');
     const sequenciaRaw = fs.readFileSync('sequencia_da_transmissao.txt', 'utf-8');
-    const linhas = sequenciaRaw.split('\n').map(l => l.trim()).filter(l => l && l.startsWith('file '));
+
+    const linhas = sequenciaRaw
+      .split('\n')
+      .map(l => l.trim())
+      .filter(l => l.startsWith("file '") && l.endsWith("'"));
+
     const videos = linhas.map(l => {
-      const match = l.match(/file\s+'([^']+)'/);
-      return match ? match[1] : null;
-    }).filter(Boolean);
+      const arquivo = l.slice(6, -1); // remove "file '" do início e "'" do final
+      return arquivo.trim();
+    });
 
     if (videos.length === 0) {
-      throw new Error('Nenhum vídeo encontrado na sequência para transmitir.');
+      throw new Error('Nenhum vídeo válido encontrado na sequência.');
     }
 
+    console.log(`📦 Arquivos encontrados na sequência (${videos.length}):`);
+    videos.forEach(v => console.log(`🧩 ${v}`));
+
+    // Registra vídeos como temporários
     videos.forEach(v => registrarTemporario(v));
 
-    // Também registra imagens baixadas para limpar
-    if (fs.existsSync('logo.png')) registrarTemporario('logo.png');
-    if (fs.existsSync('rodape.png')) registrarTemporario('rodape.png');
+    // Também registra imagens para limpeza
+    if (fs.existsSync('logo.png')) {
+      registrarTemporario('logo.png');
+      console.log('🖼️ logo.png adicionado para limpeza.');
+    }
 
-    // Monta args do FFmpeg para transmissão única concatenada
-    console.log('\n▶️ Iniciando transmissão única concatenada de todos os vídeos.');
+    if (fs.existsSync('rodape.png')) {
+      registrarTemporario('rodape.png');
+      console.log('🖼️ rodape.png adicionado para limpeza.');
+    }
 
+    // FFmpeg para transmissão
+    console.log('\n🎥 Iniciando transmissão via FFmpeg...');
     const ffmpegArgs = [
       '-re',
       '-f', 'concat',
@@ -84,23 +105,23 @@ function limparTemporarios() {
     });
 
     ffmpeg.on('error', err => {
-      console.error('❌ Erro no FFmpeg:', err);
+      console.error('❌ Erro ao executar FFmpeg:', err);
       limparTemporarios();
       process.exit(1);
     });
 
     ffmpeg.on('close', code => {
       if (code === 0) {
-        console.log('\n✅ Transmissão concluída com sucesso.');
+        console.log('\n✅ Transmissão finalizada com sucesso!');
       } else {
-        console.error(`\n❌ FFmpeg finalizou com código ${code}.`);
+        console.error(`\n❌ FFmpeg finalizou com erro (código ${code}).`);
       }
       limparTemporarios();
       process.exit(code);
     });
 
   } catch (err) {
-    console.error('❌ Erro fatal durante a transmissão:', err);
+    console.error('\n❌ Erro fatal:', err.message);
     limparTemporarios();
     process.exit(1);
   }
