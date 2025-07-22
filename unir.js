@@ -29,6 +29,20 @@ function removerNaoSequencia(sequencia) {
   }
 }
 
+function limparTemporarios() {
+  console.log('\n🧹 Limpando arquivos temporários...');
+  for (const arq of arquivosTemporarios) {
+    try {
+      if (fs.existsSync(arq)) {
+        fs.unlinkSync(arq);
+        console.log(`🗑️ Removido: ${arq}`);
+      }
+    } catch (err) {
+      console.error(`❌ Falha ao remover ${arq}:`, err.message);
+    }
+  }
+}
+
 function executarFFmpeg(args) {
   return new Promise((resolve, reject) => {
     console.log(`\n🛠️ Executando FFmpeg:\nffmpeg ${args.join(' ')}`);
@@ -70,7 +84,7 @@ async function baixarArquivo(remoto, destino, reencode = true) {
 async function reencodeVideo(input, output) {
   await executarFFmpeg([
     '-i', input,
-    '-vf', "scale=1280:720",
+    '-vf', 'scale=1280:720',
     '-c:v', 'libx264',
     '-preset', 'veryfast',
     '-crf', '23',
@@ -140,11 +154,11 @@ async function aplicarLogoERodape(videoEntrada, videoSaida, logo, rodape) {
       stream_url
     } = input;
 
-    // Baixar imagens sem reencode
+    // Baixar imagens
     await baixarArquivo(logo_id, 'logo.png', false);
     await baixarArquivo(rodape_id, 'rodape.png', false);
 
-    // Baixar e processar vídeo principal
+    // Baixar e cortar vídeo principal
     await baixarArquivo(video_principal, 'video_principal.mp4');
     const duracaoPrincipal = await obterDuracao('video_principal.mp4');
     const metade = duracaoPrincipal / 2;
@@ -155,11 +169,11 @@ async function aplicarLogoERodape(videoEntrada, videoSaida, logo, rodape) {
     await aplicarLogoERodape('parte1_bruto.mp4', 'parte1.mp4', 'logo.png', 'rodape.png');
     await aplicarLogoERodape('parte2_bruto.mp4', 'parte2.mp4', 'logo.png', 'rodape.png');
 
-    const arquivosSequencia = [];
+    const arquivosSequenciaExtras = [];
 
     async function adicionarArquivo(nome, idRemoto) {
       await baixarArquivo(idRemoto, nome);
-      arquivosSequencia.push(nome);
+      arquivosSequenciaExtras.push(nome);
     }
 
     if (video_inicial) await adicionarArquivo('video_inicial.mp4', video_inicial);
@@ -171,24 +185,31 @@ async function aplicarLogoERodape(videoEntrada, videoSaida, logo, rodape) {
       await adicionarArquivo(nome, videos_extras[i]);
     }
 
-    // Montar sequência final (ajuste conforme o que foi realmente baixado)
+    // Montar sequência final — confirmar existência
     const sequencia = [
       'parte1.mp4',
       'video_inicial.mp4',
       'miraplay.mp4',
-      ...arquivosSequencia,
+      ...arquivosSequenciaExtras,
       'video_inicial.mp4',
       'parte2.mp4',
       'video_final.mp4'
-    ].filter(f => fs.existsSync(f));
+    ].filter(arquivo => {
+      if (!fs.existsSync(arquivo)) {
+        console.warn(`⚠️ Aviso: arquivo não encontrado: ${arquivo}`);
+        return false;
+      }
+      return true;
+    });
 
+    // Criar lista de transmissão
     const linhas = [];
     console.log('\n📃 Lista da transmissão com durações (formato mm:ss):');
     for (const nome of sequencia) {
       const dur = await obterDuracao(nome);
       const tempoFormatado = formatarMinSeg(dur);
       linhas.push(`file '${nome}'  # duração: ${tempoFormatado}`);
-      console.log(`📼 ${nome.padEnd(20)} - ${tempoFormatado}`);
+      console.log(`📼 ${nome.padEnd(25)} - ${tempoFormatado}`);
     }
 
     fs.writeFileSync('sequencia_da_transmissao.txt', linhas.join('\n'));
@@ -199,11 +220,11 @@ async function aplicarLogoERodape(videoEntrada, videoSaida, logo, rodape) {
     console.log('📄 sequencia_da_transmissao.txt');
     console.log(`\n🚀 Pronto para transmitir em:\n🌐 ${stream_url}`);
 
-    // Remover arquivos NÃO na sequência (inclui logo.png e rodape.png)
+    // Limpar todos os arquivos que não fazem parte da sequência
     removerNaoSequencia(sequencia);
 
   } catch (erro) {
-    console.error('❌ Erro:', erro);
+    console.error('❌ Erro:', erro.message || erro);
     limparTemporarios();
     process.exit(1);
   }
