@@ -1,0 +1,138 @@
+name: Montar e Transmitir Vídeo
+
+on:
+  workflow_dispatch:
+    inputs:
+      id:
+        description: 'ID do evento/live'
+        required: true
+        type: string
+      video_principal:
+        description: 'Caminho do vídeo principal (ex: videos/abc.mp4)'
+        required: true
+        type: string
+      rodape_id:
+        description: 'Caminho do rodapé (.mp4 ou .webm)'
+        required: true
+        type: string
+      rodape_texto:
+        description: 'Texto do rodapé'
+        required: true
+        type: string
+      videos_extras:
+        description: 'Caminhos dos vídeos extras, separados por vírgula'
+        required: true
+        type: string
+      stream_url:
+        description: 'URL do RTMP (Facebook ou outro)'
+        required: true
+        type: string
+      rclone_conf:
+        description: 'Conteúdo base64 do rclone.conf'
+        required: true
+        type: string
+
+jobs:
+  montar-video:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Clonar repositório
+        uses: actions/checkout@v4
+
+      - name: 📦 Instalar dependências
+        run: |
+          sudo apt update
+          sudo apt install -y ffmpeg jq rclone
+          echo '{}' > package.json
+          npm install puppeteer
+
+      - name: 📄 Salvar rclone.conf
+        run: |
+          mkdir -p ~/.config/rclone
+          echo "${{ inputs.rclone_conf }}" | base64 -d > ~/.config/rclone/rclone.conf
+
+      - name: 📄 Salvar sacredi.json decodificando base64
+        run: |
+          echo "${{ secrets.SACREDI_BASE64 }}" | base64 -d > sacredi.json
+          echo "📄 Conteúdo decodificado de sacredi.json:"
+          cat sacredi.json
+          echo "--- FIM ---"
+
+      - name: 📃 Processar vídeos extras
+        run: |
+          IFS=',' read -ra EXTRAS <<< "${{ inputs.videos_extras }}"
+          printf '%s\n' "${EXTRAS[@]}" | jq -R . | jq -s . > extras.json
+
+      - name: 📝 Criar input.json com todos os dados
+        run: |
+          jq -n --arg id "${{ inputs.id }}" \
+            --arg video_principal "${{ inputs.video_principal }}" \
+            --arg rodape_id "${{ inputs.rodape_id }}" \
+            --arg rodape_texto "${{ inputs.rodape_texto }}" \
+            --arg stream_url "${{ inputs.stream_url }}" \
+            --slurpfile sacredi sacredi.json \
+            --slurpfile extras extras.json \
+            '
+            ($sacredi[0][0] // {}) as $s |
+            {
+              id: $id,
+              video_principal: $video_principal,
+              video_inicial: ($s.video_inicial // ""),
+              video_miraplay: ($s.video_miraplay // ""),
+              video_final: ($s.video_final // ""),
+              logo_id: ($s.logo_id // ""),
+              rodape_id: $rodape_id,
+              rodape_texto: $rodape_texto,
+              videos_extras: ($extras[0] // []),
+              stream_url: $stream_url
+            }
+            ' > input.json
+
+      - name: 📂 Mostrar input.json final
+        run: |
+          echo "📄 Conteúdo do input.json:"
+          cat input.json
+          echo "--- FIM ---"
+
+      - name: 🧠 Executar script de montagem
+        run: node unir.js
+
+      - name: 📤 Salvar artefatos
+        uses: actions/upload-artifact@v4
+        with:
+          name: video_final
+          path: |
+            video_final_completo.mp4
+            stream_info.json
+
+  transmitir-video:
+    runs-on: ubuntu-latest
+    needs: montar-video
+    steps:
+      - name: 📥 Clonar repositório
+        uses: actions/checkout@v4
+
+      - name: 📦 Instalar dependências e FFmpeg com suporte a RTMPS
+        run: |
+          sudo apt update
+          sudo apt install -y wget unzip ca-certificates
+          wget https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz
+          tar -xf ffmpeg-release-amd64-static.tar.xz
+          cd ffmpeg-*-amd64-static
+          sudo mv ffmpeg ffprobe /usr/local/bin/
+          ffmpeg -version | grep -E "configuration|ssl|tls"
+          cd ..
+          echo '{}' > package.json
+          npm install puppeteer
+
+      - name: 📥 Baixar artefatos do vídeo
+        uses: actions/download-artifact@v4
+        with:
+          name: video_final
+          path: video_final
+
+      - name: 📂 Copiar arquivos
+        run: cp -r video_final/* .
+
+      - name: ▶️ Transmitir vídeo com FFmpeg
+        run: node transmitir.js
