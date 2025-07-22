@@ -12,11 +12,7 @@ on:
         required: true
         type: string
       rodape_id:
-        description: 'Caminho do rodapé (.mp4 ou .webm)'
-        required: true
-        type: string
-      rodape_texto:
-        description: 'Texto do rodapé'
+        description: 'Caminho do rodapé.png'
         required: true
         type: string
       videos_extras:
@@ -68,7 +64,6 @@ jobs:
           jq -n --arg id "${{ inputs.id }}" \
             --arg video_principal "${{ inputs.video_principal }}" \
             --arg rodape_id "${{ inputs.rodape_id }}" \
-            --arg rodape_texto "${{ inputs.rodape_texto }}" \
             --arg stream_url "${{ inputs.stream_url }}" \
             --slurpfile sacredi sacredi.json \
             --slurpfile extras extras.json \
@@ -82,7 +77,6 @@ jobs:
               video_final: ($s.video_final // ""),
               logo_id: ($s.logo_id // ""),
               rodape_id: $rodape_id,
-              rodape_texto: $rodape_texto,
               videos_extras: ($extras[0] // []),
               stream_url: $stream_url
             }
@@ -97,13 +91,13 @@ jobs:
       - name: 🧠 Executar script de montagem
         run: node unir.js
 
-      - name: 📤 Salvar artefatos
+      - name: 📤 Salvar artefatos finais (stream_info e sequência)
         uses: actions/upload-artifact@v4
         with:
-          name: video_final
+          name: dados_transmissao
           path: |
-            video_final_completo.mp4
             stream_info.json
+            sequencia_da_transmissao.txt
 
   transmitir-video:
     runs-on: ubuntu-latest
@@ -128,11 +122,11 @@ jobs:
       - name: 📥 Baixar artefatos do vídeo
         uses: actions/download-artifact@v4
         with:
-          name: video_final
-          path: video_final
+          name: dados_transmissao
+          path: dados_transmissao
 
       - name: 📂 Copiar arquivos
-        run: cp -r video_final/* .
+        run: cp -r dados_transmissao/* .
 
       - name: ▶️ Transmitir vídeo com FFmpeg
         run: node transmitir.js
