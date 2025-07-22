@@ -21,7 +21,7 @@ function limparTemporarios() {
         fs.unlinkSync(arq);
         console.log(`🗑️ Removido: ${arq}`);
       } catch (err) {
-        console.error(`❌ Erro ao remover ${arq}:`, err);
+        console.error(`❌ Erro ao remover ${arq}:`, err.message);
       }
     }
   }
@@ -59,9 +59,10 @@ async function baixarArquivo(remoto, destino, reencode = true) {
 }
 
 async function reencodeVideo(input, output) {
+  console.log(`🔁 Reencodificando vídeo: ${input}`);
   await executarFFmpeg([
     '-i', input,
-    '-vf', "scale=1280:720",
+    '-vf', 'scale=1280:720',
     '-c:v', 'libx264',
     '-preset', 'veryfast',
     '-crf', '23',
@@ -83,6 +84,7 @@ function formatarMinSeg(segundos) {
 }
 
 async function cortarVideo(video, inicio, duracao, destino) {
+  console.log(`✂️ Cortando vídeo: ${video} [início: ${inicio}s | duração: ${duracao}s]`);
   await executarFFmpeg([
     '-i', video,
     '-ss', `${inicio}`,
@@ -94,12 +96,17 @@ async function cortarVideo(video, inicio, duracao, destino) {
 }
 
 async function aplicarLogoERodape(videoEntrada, videoSaida, logo, rodape) {
+  console.log(`🖼️ Aplicando logo e rodapé em: ${videoEntrada}`);
+  const filtroComplexo = `
+    [0:v][1:v] overlay=W-w-10:10:enable=between(t,0,9999) [logo];
+    [logo][2:v] overlay=0:H-h:enable='between(t,240,250)' [vout]
+  `.replace(/\s+/g, ' ').trim();
+
   await executarFFmpeg([
     '-i', videoEntrada,
     '-i', logo,
     '-i', rodape,
-    '-filter_complex',
-    "[0:v][1:v] overlay=W-w-10:10 [tmp1]; [tmp1][2:v] overlay=0:H-h [vout]",
+    '-filter_complex', filtroComplexo,
     '-map', '[vout]',
     '-map', '0:a?',
     '-c:v', 'libx264',
@@ -127,21 +134,25 @@ async function aplicarLogoERodape(videoEntrada, videoSaida, logo, rodape) {
       stream_url
     } = input;
 
-    // Baixar imagens sem reencode
+    // 1. Baixar imagens
     await baixarArquivo(logo_id, 'logo.png', false);
     await baixarArquivo(rodape_id, 'rodape.png', false);
 
-    // Baixar e processar vídeo principal
+    // 2. Baixar vídeo principal
     await baixarArquivo(video_principal, 'video_principal.mp4');
-    const duracaoPrincipal = await obterDuracao('video_principal.mp4');
-    const metade = duracaoPrincipal / 2;
 
+    const duracao = await obterDuracao('video_principal.mp4');
+    const metade = duracao / 2;
+
+    // 3. Cortar o vídeo principal em duas partes
     await cortarVideo('video_principal.mp4', 0, metade, 'parte1_bruto.mp4');
     await cortarVideo('video_principal.mp4', metade, metade, 'parte2_bruto.mp4');
 
+    // 4. Aplicar logo + rodapé nas partes
     await aplicarLogoERodape('parte1_bruto.mp4', 'parte1.mp4', 'logo.png', 'rodape.png');
     await aplicarLogoERodape('parte2_bruto.mp4', 'parte2.mp4', 'logo.png', 'rodape.png');
 
+    // 5. Baixar os outros vídeos e montar sequência
     const arquivosSequencia = [];
 
     async function adicionarArquivo(nome, idRemoto) {
@@ -158,7 +169,6 @@ async function aplicarLogoERodape(videoEntrada, videoSaida, logo, rodape) {
       await adicionarArquivo(nome, videos_extras[i]);
     }
 
-    // Montar sequência final (ajuste conforme o que foi realmente baixado)
     const sequencia = [
       'parte1.mp4',
       'video_inicial.mp4',
@@ -178,19 +188,21 @@ async function aplicarLogoERodape(videoEntrada, videoSaida, logo, rodape) {
       console.log(`📼 ${nome.padEnd(20)} - ${tempoFormatado}`);
     }
 
+    // 6. Salvar sequência e informações
     fs.writeFileSync('sequencia_da_transmissao.txt', linhas.join('\n'));
     fs.writeFileSync('stream_info.json', JSON.stringify({ id, stream_url }, null, 2));
 
-    console.log(`\n✅ Arquivos gerados:`);
-    console.log('📄 stream_info.json');
+    console.log(`\n✅ Arquivos gerados com sucesso:`);
     console.log('📄 sequencia_da_transmissao.txt');
-    console.log(`\n🚀 Pronto para transmitir em:\n🌐 ${stream_url}`);
-
+    console.log('📄 stream_info.json');
+    console.log(`\n🚀 Pronto para transmissão em:\n🌐 ${stream_url}`);
   } catch (erro) {
-    console.error('❌ Erro:', erro);
-    limparTemporarios();
+    console.error('❌ Erro:', erro.message || erro);
+    limparTemporarios(); // Em caso de erro, limpa tudo
     process.exit(1);
   } finally {
+    console.log('\n🧯 Finalizando processo...');
+    // Remove temporários, mas mantém arquivos finais em caso de sucesso
     limparTemporarios();
   }
 })();
