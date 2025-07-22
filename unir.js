@@ -13,16 +13,18 @@ function registrarTemporario(caminho) {
   arquivosTemporarios.push(caminho);
 }
 
-function limparTemporarios() {
-  console.log('\n🧹 Limpando arquivos temporários...');
+function removerNaoSequencia(sequencia) {
+  console.log('\n🧹 Removendo arquivos NÃO incluídos na sequência de transmissão...');
   for (const arq of arquivosTemporarios) {
-    if (fs.existsSync(arq)) {
+    if (!sequencia.includes(arq) && fs.existsSync(arq)) {
       try {
         fs.unlinkSync(arq);
         console.log(`🗑️ Removido: ${arq}`);
       } catch (err) {
-        console.error(`❌ Erro ao remover ${arq}:`, err.message);
+        console.error(`❌ Erro ao remover ${arq}:`, err);
       }
+    } else {
+      console.log(`✅ Mantido: ${arq}`);
     }
   }
 }
@@ -32,7 +34,14 @@ function executarFFmpeg(args) {
     console.log(`\n🛠️ Executando FFmpeg:\nffmpeg ${args.join(' ')}`);
     const proc = spawn('ffmpeg', ['-y', ...args]);
     proc.stderr.on('data', d => process.stderr.write(d.toString()));
-    proc.on('close', code => code === 0 ? resolve() : reject(new Error(`FFmpeg falhou: ${code}`)));
+    proc.on('close', code => {
+      if (code === 0) {
+        console.log('✅ FFmpeg finalizou com sucesso');
+        resolve();
+      } else {
+        reject(new Error(`FFmpeg falhou: ${code}`));
+      }
+    });
   });
 }
 
@@ -59,10 +68,9 @@ async function baixarArquivo(remoto, destino, reencode = true) {
 }
 
 async function reencodeVideo(input, output) {
-  console.log(`🔁 Reencodificando vídeo: ${input}`);
   await executarFFmpeg([
     '-i', input,
-    '-vf', 'scale=1280:720',
+    '-vf', "scale=1280:720",
     '-c:v', 'libx264',
     '-preset', 'veryfast',
     '-crf', '23',
@@ -84,7 +92,6 @@ function formatarMinSeg(segundos) {
 }
 
 async function cortarVideo(video, inicio, duracao, destino) {
-  console.log(`✂️ Cortando vídeo: ${video} [início: ${inicio}s | duração: ${duracao}s]`);
   await executarFFmpeg([
     '-i', video,
     '-ss', `${inicio}`,
@@ -97,10 +104,9 @@ async function cortarVideo(video, inicio, duracao, destino) {
 
 async function aplicarLogoERodape(videoEntrada, videoSaida, logo, rodape) {
   console.log(`🖼️ Aplicando logo e rodapé em: ${videoEntrada}`);
-  const filtroComplexo = `
-    [0:v][1:v] overlay=W-w-10:10:enable=between(t,0,9999) [logo];
-    [logo][2:v] overlay=0:H-h:enable='between(t,240,250)' [vout]
-  `.replace(/\s+/g, ' ').trim();
+
+  const filtroComplexo = '[0:v][1:v]overlay=W-w-10:10:enable=between(t\\,0\\,9999)[logo];' +
+                         '[logo][2:v]overlay=0:H-h:enable=between(t\\,240\\,250)[vout]';
 
   await executarFFmpeg([
     '-i', videoEntrada,
@@ -134,25 +140,21 @@ async function aplicarLogoERodape(videoEntrada, videoSaida, logo, rodape) {
       stream_url
     } = input;
 
-    // 1. Baixar imagens
+    // Baixar imagens sem reencode
     await baixarArquivo(logo_id, 'logo.png', false);
     await baixarArquivo(rodape_id, 'rodape.png', false);
 
-    // 2. Baixar vídeo principal
+    // Baixar e processar vídeo principal
     await baixarArquivo(video_principal, 'video_principal.mp4');
+    const duracaoPrincipal = await obterDuracao('video_principal.mp4');
+    const metade = duracaoPrincipal / 2;
 
-    const duracao = await obterDuracao('video_principal.mp4');
-    const metade = duracao / 2;
-
-    // 3. Cortar o vídeo principal em duas partes
     await cortarVideo('video_principal.mp4', 0, metade, 'parte1_bruto.mp4');
     await cortarVideo('video_principal.mp4', metade, metade, 'parte2_bruto.mp4');
 
-    // 4. Aplicar logo + rodapé nas partes
     await aplicarLogoERodape('parte1_bruto.mp4', 'parte1.mp4', 'logo.png', 'rodape.png');
     await aplicarLogoERodape('parte2_bruto.mp4', 'parte2.mp4', 'logo.png', 'rodape.png');
 
-    // 5. Baixar os outros vídeos e montar sequência
     const arquivosSequencia = [];
 
     async function adicionarArquivo(nome, idRemoto) {
@@ -169,6 +171,7 @@ async function aplicarLogoERodape(videoEntrada, videoSaida, logo, rodape) {
       await adicionarArquivo(nome, videos_extras[i]);
     }
 
+    // Montar sequência final (ajuste conforme o que foi realmente baixado)
     const sequencia = [
       'parte1.mp4',
       'video_inicial.mp4',
@@ -188,21 +191,20 @@ async function aplicarLogoERodape(videoEntrada, videoSaida, logo, rodape) {
       console.log(`📼 ${nome.padEnd(20)} - ${tempoFormatado}`);
     }
 
-    // 6. Salvar sequência e informações
     fs.writeFileSync('sequencia_da_transmissao.txt', linhas.join('\n'));
     fs.writeFileSync('stream_info.json', JSON.stringify({ id, stream_url }, null, 2));
 
-    console.log(`\n✅ Arquivos gerados com sucesso:`);
-    console.log('📄 sequencia_da_transmissao.txt');
+    console.log(`\n✅ Arquivos gerados:`);
     console.log('📄 stream_info.json');
-    console.log(`\n🚀 Pronto para transmissão em:\n🌐 ${stream_url}`);
+    console.log('📄 sequencia_da_transmissao.txt');
+    console.log(`\n🚀 Pronto para transmitir em:\n🌐 ${stream_url}`);
+
+    // Remover arquivos NÃO na sequência (inclui logo.png e rodape.png)
+    removerNaoSequencia(sequencia);
+
   } catch (erro) {
-    console.error('❌ Erro:', erro.message || erro);
-    limparTemporarios(); // Em caso de erro, limpa tudo
-    process.exit(1);
-  } finally {
-    console.log('\n🧯 Finalizando processo...');
-    // Remove temporários, mas mantém arquivos finais em caso de sucesso
+    console.error('❌ Erro:', erro);
     limparTemporarios();
+    process.exit(1);
   }
 })();
