@@ -13,22 +13,6 @@ function registrarTemporario(caminho) {
   arquivosTemporarios.push(caminho);
 }
 
-function removerNaoSequencia(sequencia) {
-  console.log('\n🧹 Removendo arquivos NÃO incluídos na sequência de transmissão...');
-  for (const arq of arquivosTemporarios) {
-    if (!sequencia.includes(arq) && fs.existsSync(arq)) {
-      try {
-        fs.unlinkSync(arq);
-        console.log(`🗑️ Removido: ${arq}`);
-      } catch (err) {
-        console.error(`❌ Erro ao remover ${arq}:`, err);
-      }
-    } else {
-      console.log(`✅ Mantido: ${arq}`);
-    }
-  }
-}
-
 function limparTemporarios() {
   console.log('\n🧹 Limpando arquivos temporários...');
   for (const arq of arquivosTemporarios) {
@@ -99,12 +83,6 @@ async function obterDuracao(video) {
   return parseFloat(stdout.trim());
 }
 
-function formatarMinSeg(segundos) {
-  const min = Math.floor(segundos / 60);
-  const seg = Math.round(segundos % 60);
-  return `${min}:${seg.toString().padStart(2, '0')}`;
-}
-
 async function cortarVideo(video, inicio, duracao, destino) {
   await executarFFmpeg([
     '-i', video,
@@ -118,7 +96,6 @@ async function cortarVideo(video, inicio, duracao, destino) {
 
 async function aplicarLogoERodape(videoEntrada, videoSaida, logo, rodape) {
   console.log(`🖼️ Aplicando logo e rodapé em: ${videoEntrada}`);
-
   const filtroComplexo = '[0:v][1:v]overlay=W-w-10:10:enable=between(t\\,0\\,9999)[logo];' +
                          '[logo][2:v]overlay=0:H-h:enable=between(t\\,240\\,250)[vout]';
 
@@ -140,7 +117,7 @@ async function aplicarLogoERodape(videoEntrada, videoSaida, logo, rodape) {
 
 (async () => {
   try {
-    console.log(`\n🎬 Iniciando processamento...\n`);
+    console.log(`\n🎬 Iniciando processamento e transmissão...\n`);
 
     const {
       video_principal,
@@ -154,11 +131,9 @@ async function aplicarLogoERodape(videoEntrada, videoSaida, logo, rodape) {
       stream_url
     } = input;
 
-    // Baixar imagens
     await baixarArquivo(logo_id, 'logo.png', false);
     await baixarArquivo(rodape_id, 'rodape.png', false);
 
-    // Baixar e cortar vídeo principal
     await baixarArquivo(video_principal, 'video_principal.mp4');
     const duracaoPrincipal = await obterDuracao('video_principal.mp4');
     const metade = duracaoPrincipal / 2;
@@ -185,7 +160,6 @@ async function aplicarLogoERodape(videoEntrada, videoSaida, logo, rodape) {
       await adicionarArquivo(nome, videos_extras[i]);
     }
 
-    // Montar sequência final — confirmar existência
     const sequencia = [
       'parte1.mp4',
       'video_inicial.mp4',
@@ -194,37 +168,40 @@ async function aplicarLogoERodape(videoEntrada, videoSaida, logo, rodape) {
       'video_inicial.mp4',
       'parte2.mp4',
       'video_final.mp4'
-    ].filter(arquivo => {
-      if (!fs.existsSync(arquivo)) {
-        console.warn(`⚠️ Aviso: arquivo não encontrado: ${arquivo}`);
-        return false;
-      }
-      return true;
-    });
+    ].filter(arquivo => fs.existsSync(arquivo));
 
-    // Criar lista de transmissão
-    const linhas = [];
-    console.log('\n📃 Lista da transmissão com durações (formato mm:ss):');
-    for (const nome of sequencia) {
-      const dur = await obterDuracao(nome);
-      const tempoFormatado = formatarMinSeg(dur);
-      linhas.push(`file '${nome}'  # duração: ${tempoFormatado}`);
-      console.log(`📼 ${nome.padEnd(25)} - ${tempoFormatado}`);
-    }
+    const sequenciaPath = 'sequencia_da_transmissao.txt';
+    const linhas = sequencia.map(nome => `file '${nome}'`);
+    fs.writeFileSync(sequenciaPath, linhas.join('\n'));
+    registrarTemporario(sequenciaPath);
 
-    fs.writeFileSync('sequencia_da_transmissao.txt', linhas.join('\n'));
-    fs.writeFileSync('stream_info.json', JSON.stringify({ id, stream_url }, null, 2));
+    console.log('\n🚀 Iniciando transmissão ao vivo (única conexão)...');
 
-    console.log(`\n✅ Arquivos gerados:`);
-    console.log('📄 stream_info.json');
-    console.log('📄 sequencia_da_transmissao.txt');
-    console.log(`\n🚀 Pronto para transmitir em:\n🌐 ${stream_url}`);
+    await executarFFmpeg([
+      '-re',
+      '-f', 'concat',
+      '-safe', '0',
+      '-i', sequenciaPath,
+      '-vf', "scale=w=1280:h=720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2",
+      '-c:v', 'libx264',
+      '-preset', 'veryfast',
+      '-maxrate', '3000k',
+      '-bufsize', '6000k',
+      '-pix_fmt', 'yuv420p',
+      '-g', '50',
+      '-c:a', 'aac',
+      '-b:a', '160k',
+      '-ar', '44100',
+      '-f', 'flv',
+      stream_url
+    ]);
 
-    // Limpar todos os arquivos que não fazem parte da sequência
-    removerNaoSequencia(sequencia);
+    console.log('\n✅ Live finalizada com sucesso!');
+    limparTemporarios();
+    process.exit(0);
 
-  } catch (erro) {
-    console.error('❌ Erro:', erro.message || erro);
+  } catch (err) {
+    console.error('\n❌ Erro fatal:', err.message || err);
     limparTemporarios();
     process.exit(1);
   }
