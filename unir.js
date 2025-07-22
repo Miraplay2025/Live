@@ -17,8 +17,12 @@ function limparTemporarios() {
   console.log('\n🧹 Limpando arquivos temporários...');
   for (const arq of arquivosTemporarios) {
     if (fs.existsSync(arq)) {
-      fs.unlinkSync(arq);
-      console.log(`🗑️ Removido: ${arq}`);
+      try {
+        fs.unlinkSync(arq);
+        console.log(`🗑️ Removido: ${arq}`);
+      } catch (err) {
+        console.error(`❌ Erro ao remover ${arq}:`, err);
+      }
     }
   }
 }
@@ -90,16 +94,13 @@ async function cortarVideo(video, inicio, duracao, destino) {
 }
 
 async function aplicarLogoERodape(videoEntrada, videoSaida, logo, rodape) {
-  const filtros = [
-    `[0:v][1:v] overlay=W-w-10:10:enable=between(t,0,9999) [v1]`,
-    `[v1][2:v] overlay=0:H-h:enable='between(t,240,250)'`
-  ];
   await executarFFmpeg([
     '-i', videoEntrada,
     '-i', logo,
     '-i', rodape,
-    '-filter_complex', filtros.join('; '),
-    '-map', '[v1]',
+    '-filter_complex',
+    "[0:v][1:v] overlay=W-w-10:10 [tmp1]; [tmp1][2:v] overlay=0:H-h [vout]",
+    '-map', '[vout]',
     '-map', '0:a?',
     '-c:v', 'libx264',
     '-preset', 'veryfast',
@@ -126,9 +127,11 @@ async function aplicarLogoERodape(videoEntrada, videoSaida, logo, rodape) {
       stream_url
     } = input;
 
+    // Baixar imagens sem reencode
     await baixarArquivo(logo_id, 'logo.png', false);
     await baixarArquivo(rodape_id, 'rodape.png', false);
 
+    // Baixar e processar vídeo principal
     await baixarArquivo(video_principal, 'video_principal.mp4');
     const duracaoPrincipal = await obterDuracao('video_principal.mp4');
     const metade = duracaoPrincipal / 2;
@@ -155,16 +158,16 @@ async function aplicarLogoERodape(videoEntrada, videoSaida, logo, rodape) {
       await adicionarArquivo(nome, videos_extras[i]);
     }
 
+    // Montar sequência final (ajuste conforme o que foi realmente baixado)
     const sequencia = [
       'parte1.mp4',
       'video_inicial.mp4',
       'miraplay.mp4',
-      'video_extra1.mp4',
-      'video_extra2.mp4',
+      ...arquivosSequencia,
       'video_inicial.mp4',
       'parte2.mp4',
       'video_final.mp4'
-    ];
+    ].filter(f => fs.existsSync(f));
 
     const linhas = [];
     console.log('\n📃 Lista da transmissão com durações (formato mm:ss):');
@@ -181,7 +184,6 @@ async function aplicarLogoERodape(videoEntrada, videoSaida, logo, rodape) {
     console.log(`\n✅ Arquivos gerados:`);
     console.log('📄 stream_info.json');
     console.log('📄 sequencia_da_transmissao.txt');
-
     console.log(`\n🚀 Pronto para transmitir em:\n🌐 ${stream_url}`);
 
   } catch (erro) {
