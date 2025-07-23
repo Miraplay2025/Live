@@ -8,6 +8,7 @@ const exec = util.promisify(require('child_process').exec);
 const keyFile = path.join(os.homedir(), '.config', 'rclone', 'rclone.conf');
 const input = JSON.parse(fs.readFileSync('input.json', 'utf-8'));
 const arquivosTemporarios = [];
+const arquivosBaixados = [];
 
 function registrarTemporario(caminho) {
   arquivosTemporarios.push(caminho);
@@ -23,6 +24,22 @@ function limparTemporarios() {
       }
     } catch (err) {
       console.error(`❌ Falha ao remover ${arq}:`, err.message);
+    }
+  }
+
+  const arquivosUsados = new Set(fs.readFileSync('sequencia_da_transmissao.txt', 'utf-8')
+    .split('\n')
+    .map(l => l.match(/file '(.+)'/)?.[1])
+    .filter(Boolean));
+    
+  for (const arq of arquivosBaixados) {
+    if (!arquivosUsados.has(arq) && fs.existsSync(arq)) {
+      try {
+        fs.unlinkSync(arq);
+        console.log(`🗑️ Removido arquivo não usado: ${arq}`);
+      } catch (err) {
+        console.error(`❌ Erro ao remover ${arq}:`, err.message);
+      }
     }
   }
 }
@@ -53,6 +70,7 @@ async function baixarArquivo(remoto, destino, reencode = true) {
       const base = path.basename(remoto);
       if (!fs.existsSync(base)) return reject(new Error(`Arquivo não encontrado: ${base}`));
       fs.renameSync(base, destino);
+      arquivosBaixados.push(destino);
       console.log(`✅ Baixado: ${destino}`);
       if (reencode) {
         const temp = destino.replace(/(\.[^.]+)$/, '_temp$1');
@@ -73,6 +91,9 @@ async function reencodeVideo(input, output) {
     '-preset', 'veryfast',
     '-crf', '23',
     '-c:a', 'aac',
+    '-pix_fmt', 'yuv420p',
+    '-fflags', '+genpts',
+    '-avoid_negative_ts', 'make_zero',
     output
   ]);
   registrarTemporario(output);
@@ -96,8 +117,12 @@ async function cortarVideo(video, inicio, duracao, destino) {
 
 async function aplicarLogoERodape(videoEntrada, videoSaida, logo, rodape) {
   console.log(`🖼️ Aplicando logo e rodapé em: ${videoEntrada}`);
-  const filtroComplexo = '[0:v][1:v]overlay=W-w-10:10:enable=between(t\\,0\\,9999)[logo];' +
-                         '[logo][2:v]overlay=0:H-h:enable=between(t\\,240\\,250)[vout]';
+
+  const filtroComplexo =
+    `[1:v]scale=60:60[logo];` +
+    `[2:v]scale=w=iw:h=iw*9/16[rodape];` +
+    `[0:v][logo]overlay=W-w-15:15[comlogo];` +
+    `[comlogo][rodape]overlay=x=(W-w)/2:y=H-h[vout]`;
 
   await executarFFmpeg([
     '-i', videoEntrada,
@@ -175,7 +200,7 @@ async function aplicarLogoERodape(videoEntrada, videoSaida, logo, rodape) {
     fs.writeFileSync(sequenciaPath, linhas.join('\n'));
     registrarTemporario(sequenciaPath);
 
-    console.log('\n🚀 Iniciando transmissão ao vivo (única conexão)...');
+    console.log('\n🚀 Iniciando transmissão ao vivo...');
 
     await executarFFmpeg([
       '-re',
