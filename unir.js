@@ -2,7 +2,6 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { spawn } = require('child_process');
-const util = require('util');
 
 const keyFile = path.join(os.homedir(), '.config', 'rclone', 'rclone.conf');
 const input = JSON.parse(fs.readFileSync('input.json', 'utf-8'));
@@ -107,13 +106,17 @@ async function cortarVideo(input, out1, out2, meio) {
 }
 
 async function aplicarLogoERodape(entrada, saida, logo, rodape) {
-  console.log(`🖼️ Aplicando logo e rodapé em ${entrada}`);
+  const duracao = await obterDuracao(entrada);
+  const exibirRodapeAos = duracao - 240;
+
+  console.log(`🖼️ Aplicando logo e rodapé (aos ${formatarTempo(exibirRodapeAos)}) em ${entrada}`);
+
   const filtro = `
     [1:v]scale=120:120[logo];
-    [2:v]scale=w=iw:h=iw*9/16[rodape];
+    [2:v]scale=-1:ih/8[rodape];
     [0:v]setpts=PTS-STARTPTS[base];
     [base][logo]overlay=W-w-15:15[comlogo];
-    [comlogo][rodape]overlay=enable='between(t,240,250)':x=(W-w)/2:y=H-h[outv]
+    [comlogo][rodape]overlay=enable='gte(t,${exibirRodapeAos})':x=(W-w)/2:y=H-h[outv]
   `.replace(/\n/g, '').replace(/\s+/g, ' ').trim();
 
   await executarFFmpeg([
@@ -134,13 +137,18 @@ async function aplicarLogoERodape(entrada, saida, logo, rodape) {
 }
 
 async function transmitirSequenciaUnicaComConcat(arquivos, streamUrl) {
-  console.log(`📡 Transmitindo todos os vídeos concatenados em tempo real para: ${streamUrl}`);
+  console.log(`📡 Transmitindo todos os vídeos concatenados para: ${streamUrl}`);
 
   const tsList = [];
+  const duracoes = [];
 
   for (const arq of arquivos) {
-    console.log(`🎞️ Embutindo vídeo: ${arq}`);
+    console.log(`🎞️ Embutindo vídeo completo: ${arq}`);
     const tsName = arq.replace(/\.mp4$/, '.ts');
+
+    const duracao = await obterDuracao(arq);
+    duracoes.push({ nome: arq, duracao });
+
     await executarFFmpeg([
       '-i', arq,
       '-c:v', 'libx264',
@@ -151,18 +159,43 @@ async function transmitirSequenciaUnicaComConcat(arquivos, streamUrl) {
       '-f', 'mpegts',
       tsName
     ]);
+
     tsList.push(tsName);
     registrarTemporario(tsName);
   }
 
+  const tempoTotal = duracoes.reduce((s, v) => s + v.duracao, 0);
+  console.log(`🕒 Duração estimada da live: ${formatarTempo(tempoTotal)}\n`);
+
   const concatStr = `concat:${tsList.join('|')}`;
-  await executarFFmpeg([
+
+  const ffmpeg = spawn('ffmpeg', [
     '-re',
     '-i', concatStr,
     '-c', 'copy',
     '-f', 'flv',
     streamUrl
   ]);
+
+  let tempoDecorrido = 0;
+  const intervalo = setInterval(() => {
+    tempoDecorrido += 1;
+    const restante = tempoTotal - tempoDecorrido;
+    if (restante >= 0) {
+      process.stdout.write(`\r⏳ Tempo restante da live: ${formatarTempo(restante)}   `);
+    }
+  }, 1000);
+
+  ffmpeg.stderr.on('data', d => process.stderr.write(d.toString()));
+  ffmpeg.stdout.on('data', d => process.stdout.write(d.toString()));
+
+  await new Promise((resolve, reject) => {
+    ffmpeg.on('close', code => {
+      clearInterval(intervalo);
+      console.log('\n⛔ Transmissão encerrada');
+      code === 0 ? resolve() : reject(new Error(`❌ FFmpeg falhou com código ${code}`));
+    });
+  });
 }
 
 (async () => {
@@ -220,7 +253,6 @@ async function transmitirSequenciaUnicaComConcat(arquivos, streamUrl) {
     await transmitirSequenciaUnicaComConcat(sequencia, input.stream_url);
 
     console.log('\n✅ Live finalizada com sucesso!');
-
   } catch (erro) {
     console.error('\n❌ Erro durante o processo:', erro.message);
   } finally {
