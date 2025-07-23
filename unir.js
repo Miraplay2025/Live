@@ -14,14 +14,14 @@ function registrarTemporario(caminho) {
 }
 
 function limparTemporarios() {
-  console.log('\n🧹 Limpando todos os arquivos temporários...');
+  console.log('\n🧹 Limpando arquivos temporários...');
   for (const arq of arquivosTemporarios) {
     if (fs.existsSync(arq)) {
       try {
         fs.unlinkSync(arq);
-        console.log(`🗑️ Arquivo removido: ${arq}`);
+        console.log(`🗑️ Removido: ${arq}`);
       } catch (e) {
-        console.warn(`⚠️ Erro ao remover: ${arq}`);
+        console.warn(`⚠️ Falha ao remover: ${arq}`);
       }
     }
   }
@@ -66,7 +66,7 @@ async function baixarArquivo(remoto, destino, reencode = true) {
       const base = path.basename(remoto);
       if (!fs.existsSync(base)) return reject(new Error(`Arquivo não encontrado: ${base}`));
       fs.renameSync(base, destino);
-      console.log(`✅ Baixado e renomeado como: ${destino}`);
+      console.log(`✅ Baixado e renomeado: ${destino}`);
       if (reencode) {
         const temp = destino.replace(/(\.[^.]+)$/, '_temp$1');
         await reencodeVideo(destino, temp);
@@ -93,7 +93,7 @@ async function reencodeVideo(input, output) {
 }
 
 async function cortarVideo(input, out1, out2, meio) {
-  console.log(`✂️ Cortando ${input} em duas partes...`);
+  console.log(`✂️ Cortando vídeo ${input}...`);
   await executarFFmpeg(['-i', input, '-t', meio.toString(), '-c', 'copy', out1]);
   await executarFFmpeg(['-i', input, '-ss', meio.toString(), '-c', 'copy', out2]);
   registrarTemporario(out1);
@@ -107,7 +107,7 @@ async function aplicarLogoERodape(entrada, saida, logo, rodape) {
     [2:v]scale='min(iw,1280)':-1[rodape];
     [0:v]setpts=PTS-STARTPTS[base];
     [base][logo]overlay=W-w-15:15[comlogo];
-    [comlogo][rodape]overlay=enable='between(t,240,250)':(W-w)/2:(H-h)[outv]
+    [comlogo][rodape]overlay=enable='between(t,240,250)':(W-w)/2\\:(H-h)[outv]
   `.replace(/\n/g, '').replace(/\s+/g, ' ').trim();
 
   await executarFFmpeg([
@@ -127,14 +127,17 @@ async function aplicarLogoERodape(entrada, saida, logo, rodape) {
 }
 
 async function transmitirSequencia(sequencia, streamUrl) {
-  console.log(`📡 Iniciando transmissão para: ${streamUrl}`);
-  const inputs = sequencia.flatMap(file => ['-i', file]);
+  console.log(`📡 Iniciando transmissão contínua para: ${streamUrl}`);
+  const args = [];
+
+  for (const file of sequencia) {
+    args.push('-re', '-i', file);
+  }
 
   const filter = `concat=n=${sequencia.length}:v=1:a=1[outv][outa]`;
 
   const finalArgs = [
-    '-re',
-    ...inputs,
+    ...args,
     '-filter_complex', filter,
     '-map', '[outv]',
     '-map', '[outa]',
@@ -150,7 +153,7 @@ async function transmitirSequencia(sequencia, streamUrl) {
   return new Promise((resolve, reject) => {
     ffmpeg.on('close', code => {
       if (code === 0) {
-        console.log('\n✅ Vídeo transmitido com sucesso!');
+        console.log('\n✅ Transmissão finalizada com sucesso!');
         resolve();
       } else {
         reject(new Error(`Erro na transmissão. Código: ${code}`));
@@ -161,12 +164,13 @@ async function transmitirSequencia(sequencia, streamUrl) {
 
 (async () => {
   try {
-    console.log('🚀 Iniciando processo de montagem da live...');
+    console.log('🚀 Iniciando preparação da live...');
 
-    // 1. Baixar arquivos
+    // Baixar vídeos e imagens
     await baixarArquivo(input.video_principal, 'video_principal.mp4');
     await baixarArquivo(input.logo_id, 'logo.png', false);
     await baixarArquivo(input.rodape_id, 'rodape.png', false);
+
     if (input.video_inicial) await baixarArquivo(input.video_inicial, 'video_inicial.mp4');
     if (input.video_miraplay) await baixarArquivo(input.video_miraplay, 'video_miraplay.mp4');
     if (input.video_final) await baixarArquivo(input.video_final, 'video_final.mp4');
@@ -178,34 +182,33 @@ async function transmitirSequencia(sequencia, streamUrl) {
       extras.push(nome);
     }
 
-    // 2. Cortar vídeo principal
+    // Cortar vídeo principal
     const duracao = await obterDuracao('video_principal.mp4');
     const meio = duracao / 2;
     await cortarVideo('video_principal.mp4', 'parte1.mp4', 'parte2.mp4', meio);
 
-    // 3. Aplicar logo e rodapé
+    // Aplicar logo e rodapé
     await aplicarLogoERodape('parte1.mp4', 'parte1_editada.mp4', 'logo.png', 'rodape.png');
     await aplicarLogoERodape('parte2.mp4', 'parte2_editada.mp4', 'logo.png', 'rodape.png');
 
-    // 4. Criar sequência exata
-    const sequencia = ['parte1_editada.mp4'];
-
+    // Criar sequência da live
+    const sequencia = [];
+    sequencia.push('parte1_editada.mp4');
     if (fs.existsSync('video_inicial.mp4')) sequencia.push('video_inicial.mp4');
     if (fs.existsSync('video_miraplay.mp4')) sequencia.push('video_miraplay.mp4');
-    extras.forEach(e => sequencia.push(e));
-    if (fs.existsSync('video_inicial.mp4')) sequencia.push('video_inicial.mp4'); // novamente
+    extras.forEach(v => sequencia.push(v));
+    if (fs.existsSync('video_inicial.mp4')) sequencia.push('video_inicial.mp4');
     sequencia.push('parte2_editada.mp4');
     if (fs.existsSync('video_final.mp4')) sequencia.push('video_final.mp4');
 
     fs.writeFileSync('sequencia_da_transmissao.txt', sequencia.join('\n'));
-    fs.writeFileSync('stream_info.json', JSON.stringify({ stream_url: input.stream_url, sequencia }, null, 2));
-    console.log('📄 Sequência criada com sucesso.');
+    console.log('📄 Arquivo "sequencia_da_transmissao.txt" criado.');
 
-    // 5. Transmitir
+    // Iniciar transmissão
     await transmitirSequencia(sequencia, input.stream_url);
 
   } catch (erro) {
-    console.error('\n❌ Erro fatal durante o processo:', erro.message);
+    console.error('\n❌ Erro durante o processo:', erro.message);
   } finally {
     limparTemporarios();
   }
