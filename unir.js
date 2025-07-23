@@ -205,7 +205,6 @@ async function aplicarLogoERodape(videoEntrada, videoSaida, logo, rodape) {
     registrarTemporario(sequenciaPath);
 
     console.log('\n🚀 Iniciando transmissão ao vivo...');
-
     await executarFFmpeg([
       '-re',
       '-fflags', '+genpts',
