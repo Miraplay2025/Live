@@ -102,12 +102,13 @@ async function cortarVideo(input, out1, out2, meio) {
 
 async function aplicarLogoERodape(entrada, saida, logo, rodape) {
   console.log(`🖼️ Aplicando logo e rodapé em ${entrada}`);
+
   const filtro = `
     [1:v]scale=120:120[logo];
-    [2:v]scale='min(iw,1280)':-1[rodape];
+    [2:v]scale=w=iw:h=iw*9/16[rodape];
     [0:v]setpts=PTS-STARTPTS[base];
     [base][logo]overlay=W-w-15:15[comlogo];
-    [comlogo][rodape]overlay=enable='between(t,240,250)':(W-w)/2\\:(H-h)[outv]
+    [comlogo][rodape]overlay=enable='between(t,240,250)':x=(W-w)/2:y=H-h[outv]
   `.replace(/\n/g, '').replace(/\s+/g, ' ').trim();
 
   await executarFFmpeg([
@@ -166,7 +167,6 @@ async function transmitirSequencia(sequencia, streamUrl) {
   try {
     console.log('🚀 Iniciando preparação da live...');
 
-    // Baixar vídeos e imagens
     await baixarArquivo(input.video_principal, 'video_principal.mp4');
     await baixarArquivo(input.logo_id, 'logo.png', false);
     await baixarArquivo(input.rodape_id, 'rodape.png', false);
@@ -182,16 +182,13 @@ async function transmitirSequencia(sequencia, streamUrl) {
       extras.push(nome);
     }
 
-    // Cortar vídeo principal
     const duracao = await obterDuracao('video_principal.mp4');
     const meio = duracao / 2;
     await cortarVideo('video_principal.mp4', 'parte1.mp4', 'parte2.mp4', meio);
 
-    // Aplicar logo e rodapé
     await aplicarLogoERodape('parte1.mp4', 'parte1_editada.mp4', 'logo.png', 'rodape.png');
     await aplicarLogoERodape('parte2.mp4', 'parte2_editada.mp4', 'logo.png', 'rodape.png');
 
-    // Criar sequência da live
     const sequencia = [];
     sequencia.push('parte1_editada.mp4');
     if (fs.existsSync('video_inicial.mp4')) sequencia.push('video_inicial.mp4');
@@ -204,7 +201,6 @@ async function transmitirSequencia(sequencia, streamUrl) {
     fs.writeFileSync('sequencia_da_transmissao.txt', sequencia.join('\n'));
     console.log('📄 Arquivo "sequencia_da_transmissao.txt" criado.');
 
-    // Iniciar transmissão
     await transmitirSequencia(sequencia, input.stream_url);
 
   } catch (erro) {
