@@ -106,8 +106,8 @@ async function cortarVideo(input, out1, out2, meio) {
 }
 
 async function aplicarLogoERodape(entrada, saida, logo, rodape) {
-  const exibirRodapeAos = 240; // exatamente aos 4 minutos
-  const fimRodape = exibirRodapeAos + 10; // dura até 4m10s
+  const exibirRodapeAos = 240;
+  const fimRodape = 250;
 
   console.log(`🖼️ Aplicando logo (fixo) e rodapé (entre ${formatarTempo(exibirRodapeAos)} e ${formatarTempo(fimRodape)}) em ${entrada}`);
 
@@ -115,8 +115,8 @@ async function aplicarLogoERodape(entrada, saida, logo, rodape) {
     [1:v]scale=-1:120[logo];
     [2:v]scale=1280:-1[rodape];
     [0:v]setpts=PTS-STARTPTS[base];
-    [base][logo]overlay=W-w-15:15[comlogo];
-    [comlogo][rodape]overlay=enable='between(t,${exibirRodapeAos},${fimRodape})':x=(W-w)/2:y=H-h[outv]
+    [base][logo]overlay=W-w-30:15[comlogo];
+    [comlogo][rodape]overlay=enable='between(t,240,250)':x=(W-w)/2:y=H-h[outv]
   `.replace(/\n/g, '').replace(/\s+/g, ' ').trim();
 
   await executarFFmpeg([
