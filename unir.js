@@ -3,7 +3,6 @@ const path = require('path');
 const os = require('os');
 const { spawn } = require('child_process');
 const util = require('util');
-const exec = util.promisify(require('child_process').exec);
 
 const keyFile = path.join(os.homedir(), '.config', 'rclone', 'rclone.conf');
 const input = JSON.parse(fs.readFileSync('input.json', 'utf-8'));
@@ -134,35 +133,36 @@ async function aplicarLogoERodape(entrada, saida, logo, rodape) {
   registrarTemporario(saida);
 }
 
-async function transmitirSequenciaIndividualmente(sequencia, streamUrl) {
-  console.log(`📡 Iniciando transmissão por sequência para: ${streamUrl}`);
+async function transmitirSequenciaUnicaComConcat(arquivos, streamUrl) {
+  console.log(`📡 Transmitindo todos os vídeos concatenados em tempo real para: ${streamUrl}`);
 
-  for (const arquivo of sequencia) {
-    if (!fs.existsSync(arquivo)) continue;
-    console.log(`\n🎬 Transmitindo: ${arquivo}`);
-    await new Promise((resolve, reject) => {
-      const ffmpeg = spawn('ffmpeg', [
-        '-re', '-i', arquivo,
-        '-c:v', 'libx264',
-        '-preset', 'veryfast',
-        '-b:v', '900k',
-        '-c:a', 'aac',
-        '-b:a', '128k',
-        '-ar', '44100',
-        '-r', '30',
-        '-f', 'flv',
-        '-flvflags', 'no_duration_filesize',
-        streamUrl
-      ], { stdio: 'inherit' });
+  const tsList = [];
 
-      ffmpeg.on('close', code => {
-        if (code === 0) resolve();
-        else reject(new Error(`Erro ao transmitir ${arquivo}`));
-      });
-    });
+  for (const arq of arquivos) {
+    console.log(`🎞️ Embutindo vídeo: ${arq}`);
+    const tsName = arq.replace(/\.mp4$/, '.ts');
+    await executarFFmpeg([
+      '-i', arq,
+      '-c:v', 'libx264',
+      '-preset', 'veryfast',
+      '-crf', '23',
+      '-c:a', 'aac',
+      '-bsf:v', 'h264_mp4toannexb',
+      '-f', 'mpegts',
+      tsName
+    ]);
+    tsList.push(tsName);
+    registrarTemporario(tsName);
   }
 
-  console.log('\n✅ Live finalizada com todos os vídeos transmitidos!');
+  const concatStr = `concat:${tsList.join('|')}`;
+  await executarFFmpeg([
+    '-re',
+    '-i', concatStr,
+    '-c', 'copy',
+    '-f', 'flv',
+    streamUrl
+  ]);
 }
 
 (async () => {
@@ -194,10 +194,10 @@ async function transmitirSequenciaIndividualmente(sequencia, streamUrl) {
       'parte1_editada.mp4',
       'video_inicial.mp4',
       'video_miraplay.mp4',
+      ...extras,
       'video_inicial.mp4',
       'parte2_editada.mp4',
-      'video_final.mp4',
-      ...extras
+      'video_final.mp4'
     ].filter(v => fs.existsSync(v));
 
     const tempos = {};
@@ -215,11 +215,11 @@ async function transmitirSequenciaIndividualmente(sequencia, streamUrl) {
     }
 
     console.log(`\n⏱️ Tempo total da live: ${formatarTempo(tempoTotal)}\n`);
-
     fs.writeFileSync('sequencia_da_transmissao.txt', sequencia.join('\n'));
-    console.log('📄 Arquivo "sequencia_da_transmissao.txt" criado.');
 
-    await transmitirSequenciaIndividualmente(sequencia, input.stream_url);
+    await transmitirSequenciaUnicaComConcat(sequencia, input.stream_url);
+
+    console.log('\n✅ Live finalizada com sucesso!');
 
   } catch (erro) {
     console.error('\n❌ Erro durante o processo:', erro.message);
