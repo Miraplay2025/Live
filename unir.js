@@ -106,9 +106,8 @@ async function cortarVideo(input, out1, out2, meio) {
 }
 
 async function aplicarLogoERodape(entrada, saida, logo, rodape) {
-  const duracao = await obterDuracao(entrada);
-  const exibirRodapeAos = duracao - 240; // 4 minutos antes do fim
-  const fimRodape = exibirRodapeAos + 10; // dura 10 segundos
+  const exibirRodapeAos = 240; // exatamente aos 4 minutos
+  const fimRodape = exibirRodapeAos + 10; // dura até 4m10s
 
   console.log(`🖼️ Aplicando logo (fixo) e rodapé (entre ${formatarTempo(exibirRodapeAos)} e ${formatarTempo(fimRodape)}) em ${entrada}`);
 
