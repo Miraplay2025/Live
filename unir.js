@@ -112,7 +112,7 @@ async function aplicarLogoERodape(entrada, saida, logo, rodape) {
     [2:v]scale='min(iw,1280)':-1[rodape];
     [0:v]setpts=PTS-STARTPTS[base];
     [base][logo]overlay=W-w-15:15[comlogo];
-    [comlogo][rodape]overlay=enable='between(t,240,250)':(W-w)/2:H-h[outv]
+    [comlogo][rodape]overlay=enable='between(t,240,250)':(W-w)/2:(H-h)[outv]
     `.replace(/\n/g, ''),
     '-map', '[outv]',
     '-map', '0:a?',
@@ -127,12 +127,15 @@ async function aplicarLogoERodape(entrada, saida, logo, rodape) {
 
 async function transmitirSequencia(sequencia, streamUrl) {
   console.log(`📡 Iniciando transmissão para: ${streamUrl}`);
-  const args = ['-re'];
+
+  const args = [];
   for (const video of sequencia) {
-    args.push('-i', video);
+    args.push('-re', '-i', video);
   }
 
-  const filter = `concat=n=${sequencia.length}:v=1:a=1[outv][outa]`;
+  const inputCount = sequencia.length;
+  const filterInputs = Array.from({ length: inputCount }, (_, i) => `[${i}:v:0][${i}:a:0]`).join('');
+  const filter = `${filterInputs}concat=n=${inputCount}:v=1:a=1[outv][outa]`;
 
   const finalArgs = [
     ...args,
@@ -164,7 +167,7 @@ async function transmitirSequencia(sequencia, streamUrl) {
   try {
     console.log('🚀 Iniciando processo de montagem da live...');
 
-    // 1. Baixar arquivos
+    // Baixar vídeos
     await baixarArquivo(input.video_principal, 'video_principal.mp4');
     await baixarArquivo(input.logo_id, 'logo.png', false);
     await baixarArquivo(input.rodape_id, 'rodape.png', false);
@@ -179,22 +182,22 @@ async function transmitirSequencia(sequencia, streamUrl) {
       extras.push(nome);
     }
 
-    // 2. Cortar vídeo principal
+    // Cortar o vídeo principal
     const duracao = await obterDuracao('video_principal.mp4');
     const meio = duracao / 2;
     await cortarVideo('video_principal.mp4', 'parte1.mp4', 'parte2.mp4', meio);
 
-    // 3. Aplicar logo e rodapé
+    // Aplicar logo e rodapé
     await aplicarLogoERodape('parte1.mp4', 'parte1_editada.mp4', 'logo.png', 'rodape.png');
     await aplicarLogoERodape('parte2.mp4', 'parte2_editada.mp4', 'logo.png', 'rodape.png');
 
-    // 4. Criar sequência exata
-    const sequencia = ['parte1_editada.mp4'];
-
+    // Montar a sequência final
+    const sequencia = [];
     if (fs.existsSync('video_inicial.mp4')) sequencia.push('video_inicial.mp4');
+    sequencia.push('parte1_editada.mp4');
     if (fs.existsSync('video_miraplay.mp4')) sequencia.push('video_miraplay.mp4');
-    extras.forEach(e => sequencia.push(e));
-    if (fs.existsSync('video_inicial.mp4')) sequencia.push('video_inicial.mp4'); // novamente
+    sequencia.push(...extras);
+    if (fs.existsSync('video_inicial.mp4')) sequencia.push('video_inicial.mp4');
     sequencia.push('parte2_editada.mp4');
     if (fs.existsSync('video_final.mp4')) sequencia.push('video_final.mp4');
 
@@ -202,7 +205,7 @@ async function transmitirSequencia(sequencia, streamUrl) {
     fs.writeFileSync('stream_info.json', JSON.stringify({ stream_url: input.stream_url, sequencia }, null, 2));
     console.log('📄 Sequência criada com sucesso.');
 
-    // 5. Transmitir
+    // Transmitir ao vivo
     await transmitirSequencia(sequencia, input.stream_url);
 
   } catch (erro) {
