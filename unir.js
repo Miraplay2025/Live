@@ -102,18 +102,19 @@ async function cortarVideo(input, out1, out2, meio) {
 
 async function aplicarLogoERodape(entrada, saida, logo, rodape) {
   console.log(`🖼️ Aplicando logo e rodapé em ${entrada}`);
-  await executarFFmpeg([
-    '-i', entrada,
-    '-i', logo,
-    '-i', rodape,
-    '-filter_complex',
-    `
+  const filtro = `
     [1:v]scale=120:120[logo];
     [2:v]scale='min(iw,1280)':-1[rodape];
     [0:v]setpts=PTS-STARTPTS[base];
     [base][logo]overlay=W-w-15:15[comlogo];
     [comlogo][rodape]overlay=enable='between(t,240,250)':(W-w)/2:(H-h)[outv]
-    `.replace(/\n/g, ''),
+  `.replace(/\n/g, '').replace(/\s+/g, ' ').trim();
+
+  await executarFFmpeg([
+    '-i', entrada,
+    '-i', logo,
+    '-i', rodape,
+    '-filter_complex', filtro,
     '-map', '[outv]',
     '-map', '0:a?',
     '-c:v', 'libx264',
@@ -127,18 +128,13 @@ async function aplicarLogoERodape(entrada, saida, logo, rodape) {
 
 async function transmitirSequencia(sequencia, streamUrl) {
   console.log(`📡 Iniciando transmissão para: ${streamUrl}`);
+  const inputs = sequencia.flatMap(file => ['-i', file]);
 
-  const args = [];
-  for (const video of sequencia) {
-    args.push('-re', '-i', video);
-  }
-
-  const inputCount = sequencia.length;
-  const filterInputs = Array.from({ length: inputCount }, (_, i) => `[${i}:v:0][${i}:a:0]`).join('');
-  const filter = `${filterInputs}concat=n=${inputCount}:v=1:a=1[outv][outa]`;
+  const filter = `concat=n=${sequencia.length}:v=1:a=1[outv][outa]`;
 
   const finalArgs = [
-    ...args,
+    '-re',
+    ...inputs,
     '-filter_complex', filter,
     '-map', '[outv]',
     '-map', '[outa]',
@@ -167,7 +163,7 @@ async function transmitirSequencia(sequencia, streamUrl) {
   try {
     console.log('🚀 Iniciando processo de montagem da live...');
 
-    // Baixar vídeos
+    // 1. Baixar arquivos
     await baixarArquivo(input.video_principal, 'video_principal.mp4');
     await baixarArquivo(input.logo_id, 'logo.png', false);
     await baixarArquivo(input.rodape_id, 'rodape.png', false);
@@ -182,22 +178,22 @@ async function transmitirSequencia(sequencia, streamUrl) {
       extras.push(nome);
     }
 
-    // Cortar o vídeo principal
+    // 2. Cortar vídeo principal
     const duracao = await obterDuracao('video_principal.mp4');
     const meio = duracao / 2;
     await cortarVideo('video_principal.mp4', 'parte1.mp4', 'parte2.mp4', meio);
 
-    // Aplicar logo e rodapé
+    // 3. Aplicar logo e rodapé
     await aplicarLogoERodape('parte1.mp4', 'parte1_editada.mp4', 'logo.png', 'rodape.png');
     await aplicarLogoERodape('parte2.mp4', 'parte2_editada.mp4', 'logo.png', 'rodape.png');
 
-    // Montar a sequência final
-    const sequencia = [];
+    // 4. Criar sequência exata
+    const sequencia = ['parte1_editada.mp4'];
+
     if (fs.existsSync('video_inicial.mp4')) sequencia.push('video_inicial.mp4');
-    sequencia.push('parte1_editada.mp4');
     if (fs.existsSync('video_miraplay.mp4')) sequencia.push('video_miraplay.mp4');
-    sequencia.push(...extras);
-    if (fs.existsSync('video_inicial.mp4')) sequencia.push('video_inicial.mp4');
+    extras.forEach(e => sequencia.push(e));
+    if (fs.existsSync('video_inicial.mp4')) sequencia.push('video_inicial.mp4'); // novamente
     sequencia.push('parte2_editada.mp4');
     if (fs.existsSync('video_final.mp4')) sequencia.push('video_final.mp4');
 
@@ -205,7 +201,7 @@ async function transmitirSequencia(sequencia, streamUrl) {
     fs.writeFileSync('stream_info.json', JSON.stringify({ stream_url: input.stream_url, sequencia }, null, 2));
     console.log('📄 Sequência criada com sucesso.');
 
-    // Transmitir ao vivo
+    // 5. Transmitir
     await transmitirSequencia(sequencia, input.stream_url);
 
   } catch (erro) {
