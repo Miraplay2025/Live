@@ -89,6 +89,7 @@ async function reencodeVideo(input, output) {
   await executarFFmpeg([
     '-i', input,
     '-vf', 'scale=1280:720,fps=30',
+    '-r', '30',
     '-c:v', 'libx264',
     '-preset', 'veryfast',
     '-crf', '23',
@@ -127,45 +128,41 @@ async function aplicarLogoERodape(entrada, saida, logo, rodape) {
     '-preset', 'veryfast',
     '-crf', '23',
     '-c:a', 'aac',
+    '-r', '30',
     saida
   ]);
   registrarTemporario(saida);
 }
 
-async function transmitirSequencia(sequencia, streamUrl) {
-  console.log(`📡 Iniciando transmissão contínua para: ${streamUrl}`);
-  const args = [];
+async function transmitirSequenciaIndividualmente(sequencia, streamUrl) {
+  console.log(`📡 Iniciando transmissão por sequência para: ${streamUrl}`);
 
-  for (const file of sequencia) {
-    args.push('-re', '-i', file);
+  for (const arquivo of sequencia) {
+    if (!fs.existsSync(arquivo)) continue;
+    console.log(`\n🎬 Transmitindo: ${arquivo}`);
+    await new Promise((resolve, reject) => {
+      const ffmpeg = spawn('ffmpeg', [
+        '-re', '-i', arquivo,
+        '-c:v', 'libx264',
+        '-preset', 'veryfast',
+        '-b:v', '900k',
+        '-c:a', 'aac',
+        '-b:a', '128k',
+        '-ar', '44100',
+        '-r', '30',
+        '-f', 'flv',
+        '-flvflags', 'no_duration_filesize',
+        streamUrl
+      ], { stdio: 'inherit' });
+
+      ffmpeg.on('close', code => {
+        if (code === 0) resolve();
+        else reject(new Error(`Erro ao transmitir ${arquivo}`));
+      });
+    });
   }
 
-  const filter = `concat=n=${sequencia.length}:v=1:a=1[outv][outa]`;
-
-  const finalArgs = [
-    ...args,
-    '-filter_complex', filter,
-    '-map', '[outv]',
-    '-map', '[outa]',
-    '-c:v', 'libx264',
-    '-preset', 'veryfast',
-    '-c:a', 'aac',
-    '-f', 'flv',
-    streamUrl
-  ];
-
-  const ffmpeg = spawn('ffmpeg', finalArgs, { stdio: 'inherit' });
-
-  return new Promise((resolve, reject) => {
-    ffmpeg.on('close', code => {
-      if (code === 0) {
-        console.log('\n✅ Transmissão finalizada com sucesso!');
-        resolve();
-      } else {
-        reject(new Error(`Erro na transmissão. Código: ${code}`));
-      }
-    });
-  });
+  console.log('\n✅ Live finalizada com todos os vídeos transmitidos!');
 }
 
 (async () => {
@@ -187,7 +184,6 @@ async function transmitirSequencia(sequencia, streamUrl) {
       extras.push(nome);
     }
 
-    // Corta vídeo principal
     const duracaoPrincipal = await obterDuracao('video_principal.mp4');
     const meio = duracaoPrincipal / 2;
     await cortarVideo('video_principal.mp4', 'parte1.mp4', 'parte2.mp4', meio);
@@ -201,6 +197,7 @@ async function transmitirSequencia(sequencia, streamUrl) {
       'video_inicial.mp4',
       'parte2_editada.mp4',
       'video_final.mp4',
+      ...extras
     ].filter(v => fs.existsSync(v));
 
     const tempos = {};
@@ -222,8 +219,7 @@ async function transmitirSequencia(sequencia, streamUrl) {
     fs.writeFileSync('sequencia_da_transmissao.txt', sequencia.join('\n'));
     console.log('📄 Arquivo "sequencia_da_transmissao.txt" criado.');
 
-    // Iniciar transmissão
-    await transmitirSequencia(sequencia, input.stream_url);
+    await transmitirSequenciaIndividualmente(sequencia, input.stream_url);
 
   } catch (erro) {
     console.error('\n❌ Erro durante o processo:', erro.message);
