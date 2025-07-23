@@ -56,6 +56,12 @@ async function obterDuracao(video) {
   });
 }
 
+function formatarTempo(segundos) {
+  const m = Math.floor(segundos / 60);
+  const s = Math.round(segundos % 60);
+  return `${m}m${s}s`;
+}
+
 async function baixarArquivo(remoto, destino, reencode = true) {
   return new Promise((resolve, reject) => {
     console.log(`⬇️ Baixando: ${remoto}`);
@@ -102,7 +108,6 @@ async function cortarVideo(input, out1, out2, meio) {
 
 async function aplicarLogoERodape(entrada, saida, logo, rodape) {
   console.log(`🖼️ Aplicando logo e rodapé em ${entrada}`);
-
   const filtro = `
     [1:v]scale=120:120[logo];
     [2:v]scale=w=iw:h=iw*9/16[rodape];
@@ -182,25 +187,42 @@ async function transmitirSequencia(sequencia, streamUrl) {
       extras.push(nome);
     }
 
-    const duracao = await obterDuracao('video_principal.mp4');
-    const meio = duracao / 2;
+    // Corta vídeo principal
+    const duracaoPrincipal = await obterDuracao('video_principal.mp4');
+    const meio = duracaoPrincipal / 2;
     await cortarVideo('video_principal.mp4', 'parte1.mp4', 'parte2.mp4', meio);
-
     await aplicarLogoERodape('parte1.mp4', 'parte1_editada.mp4', 'logo.png', 'rodape.png');
     await aplicarLogoERodape('parte2.mp4', 'parte2_editada.mp4', 'logo.png', 'rodape.png');
 
-    const sequencia = [];
-    sequencia.push('parte1_editada.mp4');
-    if (fs.existsSync('video_inicial.mp4')) sequencia.push('video_inicial.mp4');
-    if (fs.existsSync('video_miraplay.mp4')) sequencia.push('video_miraplay.mp4');
-    extras.forEach(v => sequencia.push(v));
-    if (fs.existsSync('video_inicial.mp4')) sequencia.push('video_inicial.mp4');
-    sequencia.push('parte2_editada.mp4');
-    if (fs.existsSync('video_final.mp4')) sequencia.push('video_final.mp4');
+    const sequencia = [
+      'parte1_editada.mp4',
+      'video_inicial.mp4',
+      'video_miraplay.mp4',
+      'video_inicial.mp4',
+      'parte2_editada.mp4',
+      'video_final.mp4',
+    ].filter(v => fs.existsSync(v));
+
+    const tempos = {};
+    let tempoTotal = 0;
+
+    for (const arquivo of sequencia) {
+      const duracao = await obterDuracao(arquivo);
+      tempos[arquivo] = duracao;
+      tempoTotal += duracao;
+    }
+
+    console.log('\n🕒 Duração dos vídeos na sequência da transmissão:');
+    for (const [nome, duracao] of Object.entries(tempos)) {
+      console.log(`🧩 ${nome} → ${formatarTempo(duracao)}`);
+    }
+
+    console.log(`\n⏱️ Tempo total da live: ${formatarTempo(tempoTotal)}\n`);
 
     fs.writeFileSync('sequencia_da_transmissao.txt', sequencia.join('\n'));
     console.log('📄 Arquivo "sequencia_da_transmissao.txt" criado.');
 
+    // Iniciar transmissão
     await transmitirSequencia(sequencia, input.stream_url);
 
   } catch (erro) {
