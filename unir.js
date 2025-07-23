@@ -16,7 +16,7 @@ function registrarTemporario(caminho) {
 
 function limparTemporarios() {
   console.log('\n🧹 Limpando arquivos temporários...');
-  for (const arq of arquivosTemporarios) {
+  for (const arq of arquivosTemporarios.concat(['logo.png', 'rodape.png'])) {
     try {
       if (fs.existsSync(arq)) {
         fs.unlinkSync(arq);
@@ -31,7 +31,7 @@ function limparTemporarios() {
     .split('\n')
     .map(l => l.match(/file '(.+)'/)?.[1])
     .filter(Boolean));
-    
+
   for (const arq of arquivosBaixados) {
     if (!arquivosUsados.has(arq) && fs.existsSync(arq)) {
       try {
@@ -47,15 +47,10 @@ function limparTemporarios() {
 function executarFFmpeg(args) {
   return new Promise((resolve, reject) => {
     console.log(`\n🛠️ Executando FFmpeg:\nffmpeg ${args.join(' ')}`);
-    const proc = spawn('ffmpeg', ['-y', ...args]);
-    proc.stderr.on('data', d => process.stderr.write(d.toString()));
+    const proc = spawn('ffmpeg', ['-y', ...args], { stdio: 'inherit' });
     proc.on('close', code => {
-      if (code === 0) {
-        console.log('✅ FFmpeg finalizou com sucesso');
-        resolve();
-      } else {
-        reject(new Error(`FFmpeg falhou: ${code}`));
-      }
+      if (code === 0) resolve();
+      else reject(new Error(`FFmpeg falhou: ${code}`));
     });
   });
 }
@@ -85,15 +80,17 @@ async function baixarArquivo(remoto, destino, reencode = true) {
 
 async function reencodeVideo(input, output) {
   await executarFFmpeg([
+    '-fflags', '+genpts',
+    '-avoid_negative_ts', 'make_zero',
     '-i', input,
     '-vf', 'scale=1280:720',
+    '-map', '0:v',
+    '-map', '0:a?',
     '-c:v', 'libx264',
     '-preset', 'veryfast',
     '-crf', '23',
     '-c:a', 'aac',
     '-pix_fmt', 'yuv420p',
-    '-fflags', '+genpts',
-    '-avoid_negative_ts', 'make_zero',
     output
   ]);
   registrarTemporario(output);
@@ -106,10 +103,16 @@ async function obterDuracao(video) {
 
 async function cortarVideo(video, inicio, duracao, destino) {
   await executarFFmpeg([
+    '-fflags', '+genpts',
     '-i', video,
     '-ss', `${inicio}`,
     '-t', `${duracao}`,
-    '-c', 'copy',
+    '-map', '0:v',
+    '-map', '0:a?',
+    '-c:v', 'libx264',
+    '-preset', 'veryfast',
+    '-crf', '23',
+    '-c:a', 'aac',
     destino
   ]);
   registrarTemporario(destino);
@@ -117,19 +120,20 @@ async function cortarVideo(video, inicio, duracao, destino) {
 
 async function aplicarLogoERodape(videoEntrada, videoSaida, logo, rodape) {
   console.log(`🖼️ Aplicando logo e rodapé em: ${videoEntrada}`);
-
-  const filtroComplexo =
-    `[1:v]scale=60:60[logo];` +
-    `[2:v]scale=w=iw:h=iw*9/16[rodape];` +
-    `[0:v][logo]overlay=W-w-15:15[comlogo];` +
-    `[comlogo][rodape]overlay=x=(W-w)/2:y=H-h[vout]`;
+  const filtroComplexo = `
+    [1:v]scale=120:120[logo];
+    [2:v]scale='min(iw,1280)':-1[rodape];
+    [0:v]setpts=PTS-STARTPTS[base];
+    [base][logo]overlay=W-w-15:15[comlogo];
+    [comlogo][rodape]overlay=enable='between(t,240,250)':(W-w)/2:H-h[outv]
+  `.replace(/\n/g, '');
 
   await executarFFmpeg([
     '-i', videoEntrada,
     '-i', logo,
     '-i', rodape,
     '-filter_complex', filtroComplexo,
-    '-map', '[vout]',
+    '-map', '[outv]',
     '-map', '0:a?',
     '-c:v', 'libx264',
     '-preset', 'veryfast',
@@ -204,10 +208,14 @@ async function aplicarLogoERodape(videoEntrada, videoSaida, logo, rodape) {
 
     await executarFFmpeg([
       '-re',
+      '-fflags', '+genpts',
+      '-avoid_negative_ts', 'make_zero',
       '-f', 'concat',
       '-safe', '0',
       '-i', sequenciaPath,
       '-vf', "scale=w=1280:h=720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2",
+      '-map', '0:v',
+      '-map', '0:a?',
       '-c:v', 'libx264',
       '-preset', 'veryfast',
       '-maxrate', '3000k',
