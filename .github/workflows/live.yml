@@ -94,7 +94,7 @@ jobs:
         run: node unir.js
 
       - name: 💾 Upload artefatos da montagem
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: artefatos-video-final
           path: artefatos/video_final
