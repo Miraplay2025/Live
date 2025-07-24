@@ -5,9 +5,10 @@ const { spawn } = require('child_process');
 
 const keyFile = path.join(os.homedir(), '.config', 'rclone', 'rclone.conf');
 const input = JSON.parse(fs.readFileSync('input.json', 'utf-8'));
+const artefatosDir = path.resolve('artefatos/video_final');
+fs.mkdirSync(artefatosDir, { recursive: true });
+
 const arquivosTemporarios = [];
-const pastaArtefatos = path.resolve('artefatos'); // caminho absoluto
-fs.mkdirSync(pastaArtefatos, { recursive: true });
 
 function registrarTemporario(caminho) {
   arquivosTemporarios.push(caminho);
@@ -29,6 +30,7 @@ function limparTemporarios() {
 
 async function executarFFmpeg(args) {
   return new Promise((resolve, reject) => {
+    console.log(`⚙️ Executando FFmpeg: ffmpeg ${args.join(' ')}`);
     const ffmpeg = spawn('ffmpeg', ['-y', ...args]);
     ffmpeg.stdout.on('data', d => process.stdout.write(d.toString()));
     ffmpeg.stderr.on('data', d => process.stderr.write(d.toString()));
@@ -62,38 +64,66 @@ function formatarTempo(segundos) {
   return `${m}m${s}s`;
 }
 
-/**
- * Aplica logo e rodapé num vídeo, exibindo rodapé exatamente aos 4 minutos de vídeo original,
- * calculando offset para parte2.
- * 
- * @param {string} entrada Arquivo mp4 de entrada
- * @param {string} saida Arquivo mp4 de saída
- * @param {string} logo Caminho da imagem do logo
- * @param {string} rodape Caminho da imagem do rodapé
- * @param {number} duracaoParte1 Duração da parte1 (em segundos) para cálculo do offset da parte2
- * @param {boolean} isParte2 Se o vídeo é a parte2, aplica offset no tempo do rodapé
- */
-async function aplicarLogoERodape(entrada, saida, logo, rodape, duracaoParte1, isParte2 = false) {
-  const tempoRodape = 240; // 4 minutos em segundos
-  let rodapeInicio = tempoRodape;
-  if (isParte2) {
-    // para parte2 o rodapé deve começar em (240 - duração da parte1)
-    rodapeInicio = tempoRodape - duracaoParte1;
-    if (rodapeInicio < 0) rodapeInicio = 0; // garantir que não seja negativo
-  }
+async function baixarArquivo(remoto, destino, reencode = true) {
+  return new Promise((resolve, reject) => {
+    console.log(`⬇️ Baixando: ${remoto}`);
+    const rclone = spawn('rclone', ['copy', `meudrive:${remoto}`, '.', '--config', keyFile]);
+    rclone.stderr.on('data', d => process.stderr.write(d.toString()));
+    rclone.on('close', async code => {
+      if (code !== 0) return reject(new Error(`Erro ao baixar ${remoto}`));
+      const base = path.basename(remoto);
+      if (!fs.existsSync(base)) return reject(new Error(`Arquivo não encontrado: ${base}`));
+      fs.renameSync(base, destino);
+      console.log(`✅ Baixado e renomeado: ${destino}`);
+      if (reencode) {
+        const temp = destino.replace(/(\.[^.]+)$/, '_temp$1');
+        await reencodeVideo(destino, temp);
+        fs.renameSync(temp, destino);
+        console.log(`✅ Reencodado: ${destino}`);
+      }
+      registrarTemporario(destino);
+      resolve();
+    });
+  });
+}
+
+async function reencodeVideo(input, output) {
+  console.log(`🔄 Reencodando ${input} → ${output}`);
+  await executarFFmpeg([
+    '-i', input,
+    '-vf', 'scale=1280:720,fps=30',
+    '-r', '30',
+    '-c:v', 'libx264',
+    '-preset', 'veryfast',
+    '-crf', '23',
+    '-acodec', 'aac',
+    '-b:a', '192k',
+    '-ar', '44100',
+    '-ac', '2',
+    output
+  ]);
+  registrarTemporario(output);
+}
+
+async function cortarVideo(input, out1, out2, meio) {
+  console.log(`✂️ Cortando vídeo ${input}...`);
+  await executarFFmpeg(['-i', input, '-t', meio.toString(), '-c', 'copy', out1]);
+  await executarFFmpeg(['-i', input, '-ss', meio.toString(), '-c', 'copy', out2]);
+  registrarTemporario(out1);
+  registrarTemporario(out2);
+}
+
+async function aplicarLogoERodape(entrada, saida, logo, rodape, rodapeInicio = 240) {
   const rodapeFim = rodapeInicio + 10;
-
-  console.log(`🖼️ Aplicando logo e rodapé em ${entrada}`);
-  console.log(`   Rodapé aparece entre ${formatarTempo(rodapeInicio)} e ${formatarTempo(rodapeFim)}`);
-
   const filtro = `
     [1:v]scale=-1:120[logo];
     [2:v]scale=1280:-1[rodape];
     [0:v]setpts=PTS-STARTPTS[base];
-    [base][logo]overlay=x=W-w-15:y=15[comlogo];
+    [base][logo]overlay=W-w-1:15[comlogo];
     [comlogo][rodape]overlay=enable='between(t,${rodapeInicio},${rodapeFim})':x=0:y=H-h[outv]
   `.replace(/\n/g, '').replace(/\s+/g, ' ').trim();
 
+  console.log(`🖼️ Aplicando logo e rodapé: ${entrada} → ${saida}`);
   await executarFFmpeg([
     '-i', entrada,
     '-i', logo,
@@ -137,11 +167,11 @@ async function aplicarLogoERodape(entrada, saida, logo, rodape, duracaoParte1, i
     const meio = duracaoPrincipal / 2;
     await cortarVideo('video_principal.mp4', 'parte1.mp4', 'parte2.mp4', meio);
 
-    const duracaoParte1 = await obterDuracao('parte1.mp4');
-    const duracaoParte2 = await obterDuracao('parte2.mp4');
+    const rodapeTempoParte1 = (await obterDuracao('parte1.mp4')) >= 250 ? 240 : -1;
+    const rodapeTempoParte2 = (await obterDuracao('parte2.mp4')) >= 250 ? 240 : -1;
 
-    await aplicarLogoERodape('parte1.mp4', 'parte1_editada.mp4', 'logo.png', 'rodape.png', duracaoParte1, false);
-    await aplicarLogoERodape('parte2.mp4', 'parte2_editada.mp4', 'logo.png', 'rodape.png', duracaoParte1, true);
+    await aplicarLogoERodape('parte1.mp4', 'parte1_editada.mp4', 'logo.png', 'rodape.png', rodapeTempoParte1);
+    await aplicarLogoERodape('parte2.mp4', 'parte2_editada.mp4', 'logo.png', 'rodape.png', rodapeTempoParte2);
 
     const sequencia = [
       'parte1_editada.mp4',
@@ -153,17 +183,15 @@ async function aplicarLogoERodape(entrada, saida, logo, rodape, duracaoParte1, i
       'video_final.mp4'
     ].filter(v => fs.existsSync(v));
 
-    let tempoTotal = 0;
     const tsList = [];
+    console.log('\n📦 Iniciando geração dos arquivos .ts para transmissão...');
+    for (const mp4 of sequencia) {
+      const tsName = path.basename(mp4).replace(/\.mp4$/, '.ts');
+      const tsFullPath = path.join(artefatosDir, tsName);
 
-    for (const arq of sequencia) {
-      const tsName = path.join(pastaArtefatos, arq.replace(/\.mp4$/, '.ts'));
-      const duracao = await obterDuracao(arq);
-      tempoTotal += duracao;
-
-      console.log(`🎞️ Embutindo vídeo completo: ${arq}`);
+      console.log(`🎞️ Embutindo vídeo completo: ${mp4} → ${tsFullPath}`);
       await executarFFmpeg([
-        '-i', arq,
+        '-i', mp4,
         '-c:v', 'libx264',
         '-preset', 'veryfast',
         '-crf', '23',
@@ -173,25 +201,26 @@ async function aplicarLogoERodape(entrada, saida, logo, rodape, duracaoParte1, i
         '-ac', '2',
         '-bsf:v', 'h264_mp4toannexb',
         '-f', 'mpegts',
-        tsName
+        tsFullPath
       ]);
 
-      tsList.push(tsName);
+      tsList.push(tsFullPath);
     }
 
-    // Salvar artefatos com caminhos absolutos
-    const streamInfo = {
-      stream_url: input.stream_url,
-      gerado_em: new Date().toISOString(),
-      duracao_total_segundos: tempoTotal,
-      arquivos: tsList
-    };
+    const tsPathsJson = path.join(artefatosDir, 'ts_paths.json');
+    const streamInfoJson = path.join(artefatosDir, 'stream_info.json');
 
-    fs.writeFileSync(path.join(pastaArtefatos, 'stream_info.json'), JSON.stringify(streamInfo, null, 2));
-    fs.writeFileSync(path.join(pastaArtefatos, 'sequencia_da_transmissao.txt'), tsList.join('\n'));
+    fs.writeFileSync(tsPathsJson, JSON.stringify(tsList, null, 2));
+    fs.writeFileSync(streamInfoJson, JSON.stringify({
+      id: input.id,
+      stream_url: input.stream_url
+    }, null, 2));
 
-    console.log(`\n✅ Artefatos com caminhos absolutos salvos em: ${pastaArtefatos}`);
-    console.log(`⏱️ Duração estimada: ${formatarTempo(tempoTotal)}\n`);
+    console.log(`\n📄 Arquivos gerados:`);
+    console.log(`📁 Lista .ts salva em: ${tsPathsJson}`);
+    console.log(`📡 Info da stream salva em: ${streamInfoJson}`);
+    console.log('\n✅ Pronto para transmissão via `transmitir.js`');
+
   } catch (erro) {
     console.error('\n❌ Erro durante o processo:', erro.message);
   } finally {
