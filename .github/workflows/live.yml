@@ -40,7 +40,7 @@ jobs:
       - name: 📦 Instalar dependências
         run: |
           sudo apt update
-          sudo apt install -y ffmpeg jq rclone git
+          sudo apt install -y ffmpeg jq rclone git curl
           echo '{}' > package.json
           npm install puppeteer
 
@@ -99,17 +99,14 @@ jobs:
           name: artefatos-video-final
           path: artefatos/video_final
 
-      - name: 🚀 Enviar artefatos para repositório Turb2025/Live
+      - name: ▶️ Acionar transmissão no repositório Turb2025/Live
         env:
-          GIT_TOKEN: ${{ secrets.DEST_REPO_PAT }}
+          GH_TOKEN: ${{ secrets.DEST_REPO_PAT }}
         run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-
-          git clone https://${GIT_TOKEN}@github.com/Turb2025/Live.git repo_destino
-          cp -r artefatos/video_final/* repo_destino/
-          cd repo_destino
-
-          git add .
-          git commit -m "Atualizar artefatos vídeo final - ID: ${{ github.event.inputs.id }}" || echo "Nada para commitar"
-          git push
+          curl -X POST \
+            -H "Authorization: token $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/Turb2025/Live/actions/workflows/transmitir.yml/dispatches \
+            -d '{
+              "ref": "main"
+            }'
