@@ -1,128 +1,115 @@
 const fs = require('fs');
 const { spawn } = require('child_process');
+const path = require('path');
 
-const arquivosTemporarios = [];
+const pastaArtefatos = path.resolve('artefatos');
 
-function registrarTemporario(caminho) {
-  arquivosTemporarios.push(caminho);
+function executarFFmpeg(args) {
+  return new Promise((resolve, reject) => {
+    const proc = spawn('ffmpeg', args);
+    proc.stdout.on('data', d => process.stdout.write(d.toString()));
+    proc.stderr.on('data', d => process.stderr.write(d.toString()));
+    proc.on('close', code => {
+      code === 0 ? resolve() : reject(new Error(`FFmpeg falhou com código ${code}`));
+    });
+    proc.on('error', err => reject(err));
+  });
 }
 
-function limparTemporarios() {
-  console.log('\n🧹 Limpando arquivos temporários...');
-  for (const arq of arquivosTemporarios) {
-    if (fs.existsSync(arq)) {
-      try {
-        fs.unlinkSync(arq);
-        console.log(`🗑️ Removido: ${arq}`);
-      } catch (err) {
-        console.error(`❌ Erro ao remover arquivo ${arq}:`, err);
-      }
+function formatarTempo(segundos) {
+  const m = Math.floor(segundos / 60);
+  const s = Math.round(segundos % 60);
+  return `${m}m${s}s`;
+}
+
+function limparArtefatos() {
+  if (!fs.existsSync(pastaArtefatos)) return;
+  const arquivos = fs.readdirSync(pastaArtefatos);
+  for (const arquivo of arquivos) {
+    try {
+      const caminho = path.join(pastaArtefatos, arquivo);
+      fs.unlinkSync(caminho);
+      console.log(`🗑️ Removido artefato: ${caminho}`);
+    } catch (e) {
+      console.warn(`⚠️ Falha ao remover artefato: ${arquivo}`, e.message);
     }
   }
 }
 
 (async () => {
   try {
-    console.log('📂 Verificando arquivos essenciais...');
+    const infoPath = path.join(pastaArtefatos, 'stream_info.json');
+    const listaPath = path.join(pastaArtefatos, 'sequencia_da_transmissao.txt');
 
-    if (!fs.existsSync('stream_info.json')) {
-      throw new Error('Arquivo stream_info.json não encontrado.');
+    if (!fs.existsSync(infoPath) || !fs.existsSync(listaPath)) {
+      throw new Error('Arquivos de artefatos não encontrados na pasta ' + pastaArtefatos);
     }
 
-    if (!fs.existsSync('sequencia_da_transmissao.txt')) {
-      throw new Error('Arquivo sequencia_da_transmissao.txt não encontrado.');
-    }
-
-    const streamInfo = JSON.parse(fs.readFileSync('stream_info.json', 'utf-8'));
-    const streamUrl = streamInfo.stream_url;
-
-    if (!streamUrl) {
-      throw new Error('URL de transmissão (stream_url) não encontrada no stream_info.json.');
-    }
-
-    console.log(`🌐 URL de transmissão: ${streamUrl}`);
-
-    // Lê e processa sequência de vídeos
-    console.log('\n📑 Lendo sequencia_da_transmissao.txt...');
-    const sequenciaRaw = fs.readFileSync('sequencia_da_transmissao.txt', 'utf-8');
-
-    const linhas = sequenciaRaw
+    const info = JSON.parse(fs.readFileSync(infoPath, 'utf-8'));
+    const arquivos = fs.readFileSync(listaPath, 'utf-8')
       .split('\n')
-      .map(l => l.trim())
-      .filter(l => l.startsWith("file '") && l.endsWith("'"));
+      .map(f => f.trim())
+      .filter(Boolean)
+      .map(f => path.isAbsolute(f) ? f : path.join(pastaArtefatos, f));
 
-    const videos = linhas.map(l => {
-      const arquivo = l.slice(6, -1); // remove "file '" do início e "'" do final
-      return arquivo.trim();
-    });
-
-    if (videos.length === 0) {
-      throw new Error('Nenhum vídeo válido encontrado na sequência.');
+    if (arquivos.length === 0) {
+      throw new Error('Nenhum arquivo de vídeo encontrado para transmitir.');
     }
 
-    console.log(`📦 Arquivos encontrados na sequência (${videos.length}):`);
-    videos.forEach(v => console.log(`🧩 ${v}`));
+    const streamUrl = info.stream_url;
+    const tempoTotal = info.duracao_total_segundos || 0;
 
-    // Registra vídeos como temporários
-    videos.forEach(v => registrarTemporario(v));
+    console.log('📋 Dados do artefato:');
+    console.log(`  URL da transmissão: ${streamUrl}`);
+    console.log(`  Arquivos para transmissão: ${arquivos.length}`);
+    arquivos.forEach((a, i) => console.log(`   ${i+1}. ${a}`));
+    console.log(`  Duração total estimada: ${formatarTempo(tempoTotal)}`);
 
-    // Também registra imagens para limpeza
-    if (fs.existsSync('logo.png')) {
-      registrarTemporario('logo.png');
-      console.log('🖼️ logo.png adicionado para limpeza.');
-    }
+    // Concatenação dos arquivos ts para entrada do ffmpeg
+    const concatStr = `concat:${arquivos.join('|')}`;
 
-    if (fs.existsSync('rodape.png')) {
-      registrarTemporario('rodape.png');
-      console.log('🖼️ rodape.png adicionado para limpeza.');
-    }
-
-    // FFmpeg para transmissão
-    console.log('\n🎥 Iniciando transmissão via FFmpeg...');
-    const ffmpegArgs = [
+    console.log(`\n📡 Iniciando transmissão para: ${streamUrl}`);
+    const ffmpeg = spawn('ffmpeg', [
       '-re',
-      '-f', 'concat',
-      '-safe', '0',
-      '-i', 'sequencia_da_transmissao.txt',
-      '-vf', "scale=w=1280:h=720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2",
-      '-c:v', 'libx264',
-      '-preset', 'veryfast',
-      '-maxrate', '3000k',
-      '-bufsize', '6000k',
-      '-pix_fmt', 'yuv420p',
-      '-g', '50',
-      '-c:a', 'aac',
-      '-b:a', '160k',
-      '-ar', '44100',
+      '-i', concatStr,
+      '-c', 'copy',
       '-f', 'flv',
       streamUrl
-    ];
+    ]);
 
-    const ffmpeg = spawn('ffmpeg', ffmpegArgs);
+    let tempoDecorrido = 0;
+    const intervalo = setInterval(() => {
+      tempoDecorrido++;
+      const restante = tempoTotal - tempoDecorrido;
+      if (restante >= 0) {
+        process.stdout.write(`\r⏳ Tempo restante da live: ${formatarTempo(restante)}   `);
+      }
+    }, 1000);
 
-    ffmpeg.stderr.on('data', data => {
-      process.stderr.write(data.toString());
-    });
-
-    ffmpeg.on('error', err => {
-      console.error('❌ Erro ao executar FFmpeg:', err);
-      limparTemporarios();
-      process.exit(1);
-    });
+    ffmpeg.stderr.on('data', d => process.stderr.write(d.toString()));
+    ffmpeg.stdout.on('data', d => process.stdout.write(d.toString()));
 
     ffmpeg.on('close', code => {
+      clearInterval(intervalo);
       if (code === 0) {
-        console.log('\n✅ Transmissão finalizada com sucesso!');
+        console.log('\n✅ Live finalizada com sucesso!');
       } else {
-        console.error(`\n❌ FFmpeg finalizou com erro (código ${code}).`);
+        console.error(`\n❌ Transmissão encerrada com erro (código ${code})`);
       }
-      limparTemporarios();
+      limparArtefatos();
       process.exit(code);
     });
 
-  } catch (err) {
-    console.error('\n❌ Erro fatal:', err.message);
-    limparTemporarios();
+    ffmpeg.on('error', err => {
+      clearInterval(intervalo);
+      console.error('\n❌ Falha ao iniciar FFmpeg:', err.message);
+      limparArtefatos();
+      process.exit(1);
+    });
+
+  } catch (e) {
+    console.error('❌ Erro:', e.message);
+    limparArtefatos();
     process.exit(1);
   }
 })();
