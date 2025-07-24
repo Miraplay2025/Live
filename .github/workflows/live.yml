@@ -31,8 +31,7 @@ on:
 jobs:
   montar-video:
     runs-on: ubuntu-latest
-    outputs:
-      artefato-path: artefatos/video_final
+
     steps:
       - name: 📥 Clonar repositório
         uses: actions/checkout@v4
@@ -94,19 +93,41 @@ jobs:
         run: node unir.js
 
       - name: 💾 Upload artefatos da montagem
+        id: upload_artefato
         uses: actions/upload-artifact@v4
         with:
           name: artefatos-video-final
           path: artefatos/video_final
 
+      - name: 🧾 Obter metadata da execução
+        id: metadata
+        run: |
+          echo "run_id=${{ github.run_id }}" >> $GITHUB_OUTPUT
+
       - name: ▶️ Acionar transmissão no repositório Turb2025/Live
         env:
           GH_TOKEN: ${{ secrets.DEST_REPO_PAT }}
         run: |
+          ARTIFACT_ID=$(curl -s -H "Authorization: token $GH_TOKEN" \
+            https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ steps.metadata.outputs.run_id }}/artifacts \
+            | jq -r '.artifacts[] | select(.name == "artefatos-video-final") | .id')
+
+          if [ -z "$ARTIFACT_ID" ]; then
+            echo "❌ Não foi possível encontrar o ID do artefato."
+            exit 1
+          fi
+
+          DOWNLOAD_URL="https://github.com/${{ github.repository }}/actions/runs/${{ steps.metadata.outputs.run_id }}/artifacts/$ARTIFACT_ID"
+
+          echo "🎯 URL de download do artefato: $DOWNLOAD_URL"
+
           curl -X POST \
             -H "Authorization: token $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             https://api.github.com/repos/Turb2025/Live/actions/workflows/transmitir.yml/dispatches \
             -d '{
-              "ref": "main"
+              "ref": "main",
+              "inputs": {
+                "artefato_url": "'"$DOWNLOAD_URL"'"
+              }
             }'
