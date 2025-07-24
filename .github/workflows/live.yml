@@ -103,6 +103,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: montar-video
     steps:
+      - name: 📥 Clonar repositório
+        uses: actions/checkout@v4
+
       - name: 📥 Baixar artefatos da montagem
         uses: actions/download-artifact@v4
         with:
