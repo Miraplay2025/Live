@@ -91,7 +91,10 @@ async function reencodeVideo(input, output) {
     '-c:v', 'libx264',
     '-preset', 'veryfast',
     '-crf', '23',
-    '-c:a', 'aac',
+    '-acodec', 'aac',
+    '-b:a', '192k',
+    '-ar', '44100',
+    '-ac', '2',
     output
   ]);
   registrarTemporario(output);
@@ -109,14 +112,14 @@ async function aplicarLogoERodape(entrada, saida, logo, rodape) {
   const exibirRodapeAos = 240;
   const fimRodape = 250;
 
-  console.log(`🖼️ Aplicando logo (fixo) e rodapé (entre ${formatarTempo(exibirRodapeAos)} e ${formatarTempo(fimRodape)}) em ${entrada}`);
+  console.log(`🖼️ Aplicando logo e rodapé entre ${formatarTempo(exibirRodapeAos)} e ${formatarTempo(fimRodape)} em ${entrada}`);
 
   const filtro = `
     [1:v]scale=-1:120[logo];
     [2:v]scale=1280:-1[rodape];
     [0:v]setpts=PTS-STARTPTS[base];
-    [base][logo]overlay=W-w-30:15[comlogo];
-    [comlogo][rodape]overlay=enable='between(t,240,250)':x=(W-w)/2:y=H-h[outv]
+    [base][logo]overlay=W-w-1:15[comlogo];
+    [comlogo][rodape]overlay=enable='between(t,${exibirRodapeAos},${fimRodape})':x=0:y=H-h[outv]
   `.replace(/\n/g, '').replace(/\s+/g, ' ').trim();
 
   await executarFFmpeg([
@@ -129,7 +132,10 @@ async function aplicarLogoERodape(entrada, saida, logo, rodape) {
     '-c:v', 'libx264',
     '-preset', 'veryfast',
     '-crf', '23',
-    '-c:a', 'aac',
+    '-acodec', 'aac',
+    '-b:a', '192k',
+    '-ar', '44100',
+    '-ac', '2',
     '-r', '30',
     saida
   ]);
@@ -155,6 +161,9 @@ async function transmitirSequenciaUnicaComConcat(arquivos, streamUrl) {
       '-preset', 'veryfast',
       '-crf', '23',
       '-c:a', 'aac',
+      '-b:a', '192k',
+      '-ar', '44100',
+      '-ac', '2',
       '-bsf:v', 'h264_mp4toannexb',
       '-f', 'mpegts',
       tsName
