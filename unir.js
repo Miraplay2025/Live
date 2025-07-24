@@ -108,18 +108,17 @@ async function cortarVideo(input, out1, out2, meio) {
   registrarTemporario(out2);
 }
 
-async function aplicarLogoERodape(entrada, saida, logo, rodape) {
-  const exibirRodapeAos = 240;
-  const fimRodape = 250;
+async function aplicarLogoERodape(entrada, saida, logo, rodape, rodapeInicio = 240) {
+  const rodapeFim = rodapeInicio + 10;
 
-  console.log(`🖼️ Aplicando logo e rodapé entre ${formatarTempo(exibirRodapeAos)} e ${formatarTempo(fimRodape)} em ${entrada}`);
+  console.log(`🖼️ Aplicando logo e rodapé entre ${formatarTempo(rodapeInicio)} e ${formatarTempo(rodapeFim)} em ${entrada}`);
 
   const filtro = `
     [1:v]scale=-1:120[logo];
     [2:v]scale=1280:-1[rodape];
     [0:v]setpts=PTS-STARTPTS[base];
     [base][logo]overlay=W-w-1:15[comlogo];
-    [comlogo][rodape]overlay=enable='between(t,${exibirRodapeAos},${fimRodape})':x=0:y=H-h[outv]
+    [comlogo][rodape]overlay=enable='between(t,${rodapeInicio},${rodapeFim})':x=0:y=H-h[outv]
   `.replace(/\n/g, '').replace(/\s+/g, ' ').trim();
 
   await executarFFmpeg([
@@ -229,8 +228,15 @@ async function transmitirSequenciaUnicaComConcat(arquivos, streamUrl) {
     const duracaoPrincipal = await obterDuracao('video_principal.mp4');
     const meio = duracaoPrincipal / 2;
     await cortarVideo('video_principal.mp4', 'parte1.mp4', 'parte2.mp4', meio);
-    await aplicarLogoERodape('parte1.mp4', 'parte1_editada.mp4', 'logo.png', 'rodape.png');
-    await aplicarLogoERodape('parte2.mp4', 'parte2_editada.mp4', 'logo.png', 'rodape.png');
+
+    const duracaoParte1 = await obterDuracao('parte1.mp4');
+    const duracaoParte2 = await obterDuracao('parte2.mp4');
+
+    const rodapeTempoParte1 = duracaoParte1 >= 240 ? 240 : 0;
+    const rodapeTempoParte2 = duracaoParte2 >= 240 ? 240 : 0;
+
+    await aplicarLogoERodape('parte1.mp4', 'parte1_editada.mp4', 'logo.png', 'rodape.png', rodapeTempoParte1);
+    await aplicarLogoERodape('parte2.mp4', 'parte2_editada.mp4', 'logo.png', 'rodape.png', rodapeTempoParte2);
 
     const sequencia = [
       'parte1_editada.mp4',
