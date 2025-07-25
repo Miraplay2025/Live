@@ -76,7 +76,7 @@ function baixarArquivo(remoto, destino, reencode = true) {
         fs.renameSync(temp, destino);
         console.log(`✅ Reencodado: ${destino}`);
       }
-      registrarTemporario(destino); // pode comentar essa linha se não quiser remover vídeo final
+      registrarTemporario(destino);
       resolve();
     });
   });
@@ -108,19 +108,12 @@ async function cortarVideo(input, out1, out2, meio) {
   registrarTemporario(out2);
 }
 
-async function aplicarLogoERodape(entrada, saida) {
-  const filtro = `
-    [1:v]scale=-1:120[logo];
-    [2:v]scale=1280:-1[rodape];
-    [0:v]setpts=PTS-STARTPTS[base];
-    [base][logo]overlay=W-w-1:15[comlogo];
-    [comlogo][rodape]overlay=enable='between(t,240,250)':x=0:y=H-h[outv]
-  `.replace(/\n/g, '').replace(/\s+/g, ' ').trim();
+async function aplicarLogo(entrada, saida) {
+  const filtro = '[1:v]scale=-1:120[logo]; [0:v][logo]overlay=W-w-1:15[outv]';
 
   const args = [
     '-i', entrada,
     '-i', 'logo.png',
-    '-i', 'rodape.png',
     '-filter_complex', filtro,
     '-map', '[outv]',
     '-map', '0:a?',
@@ -146,7 +139,6 @@ async function aplicarLogoERodape(entrada, saida) {
 
     await baixarArquivo(input.video_principal, 'video_principal.mp4');
     await baixarArquivo(input.logo_id, 'logo.png', false);
-    await baixarArquivo(input.rodape_id, 'rodape.png', false);
 
     if (input.video_inicial) await baixarArquivo(input.video_inicial, 'video_inicial.mp4');
     if (input.video_miraplay) await baixarArquivo(input.video_miraplay, 'video_miraplay.mp4');
@@ -163,8 +155,8 @@ async function aplicarLogoERodape(entrada, saida) {
     const meio = duracaoPrincipal / 2;
     await cortarVideo('video_principal.mp4', 'parte1.mp4', 'parte2.mp4', meio);
 
-    await aplicarLogoERodape('parte1.mp4', 'parte1_editada.mp4');
-    await aplicarLogoERodape('parte2.mp4', 'parte2_editada.mp4');
+    await aplicarLogo('parte1.mp4', 'parte1_editada.mp4');
+    await aplicarLogo('parte2.mp4', 'parte2_editada.mp4');
 
     const sequencia = [
       'parte1_editada.mp4',
@@ -216,6 +208,7 @@ async function aplicarLogoERodape(entrada, saida) {
 
   } catch (erro) {
     console.error('\n❌ Erro durante o processo:', erro.message);
+    process.exit(1);
   } finally {
     limparTemporarios();
   }
