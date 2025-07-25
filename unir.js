@@ -201,8 +201,8 @@ async function aplicarLogo(entrada, saida) {
       tsList.push(tsFullPath);
     }
 
-    // Inclui rodapé no JSON (como imagem)
-    tsList.push(rodapeLocal);
+    // ❌ NÃO incluir rodapé no JSON (corrigido!)
+    // tsList.push(rodapeLocal); ← REMOVIDO
 
     const tsPathsJson = path.join(artefatosDir, 'ts_paths.json');
     const streamInfoJson = path.join(artefatosDir, 'stream_info.json');
