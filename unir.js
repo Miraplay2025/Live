@@ -58,12 +58,6 @@ async function obterDuracao(video) {
   });
 }
 
-function formatarTempo(segundos) {
-  const m = Math.floor(segundos / 60);
-  const s = Math.round(segundos % 60);
-  return `${m}m${s}s`;
-}
-
 async function baixarArquivo(remoto, destino, reencode = true) {
   return new Promise((resolve, reject) => {
     console.log(`⬇️ Baixando: ${remoto}`);
@@ -113,36 +107,19 @@ async function cortarVideo(input, out1, out2, meio) {
   registrarTemporario(out2);
 }
 
-async function aplicarLogoERodape(entrada, saida, logo, rodape, rodapeInicio = 240) {
-  let filtro;
-  if (rodapeInicio >= 0) {
-    const rodapeFim = rodapeInicio + 10;
-    filtro = `
-      [1:v]scale=-1:120[logo];
-      [2:v]scale=1280:-1[rodape];
-      [0:v]setpts=PTS-STARTPTS[base];
-      [base][logo]overlay=W-w-1:15[comlogo];
-      [comlogo][rodape]overlay=enable='between(t,${rodapeInicio},${rodapeFim})':x=0:y=H-h[outv]
-    `.replace(/\n/g, '').replace(/\s+/g, ' ').trim();
-  } else {
-    filtro = `
-      [1:v]scale=-1:120[logo];
-      [0:v]setpts=PTS-STARTPTS[base];
-      [base][logo]overlay=W-w-1:15[outv]
-    `.replace(/\n/g, '').replace(/\s+/g, ' ').trim();
-  }
+async function aplicarLogoERodape(entrada, saida) {
+  const filtro = `
+    [1:v]scale=-1:120[logo];
+    [2:v]scale=1280:-1[rodape];
+    [0:v]setpts=PTS-STARTPTS[base];
+    [base][logo]overlay=W-w-1:15[comlogo];
+    [comlogo][rodape]overlay=enable='between(t,240,250)':x=0:y=H-h[outv]
+  `.replace(/\n/g, '').replace(/\s+/g, ' ').trim();
 
-  console.log(`🖼️ Aplicando logo e${rodapeInicio >= 0 ? ' rodapé' : ''}: ${entrada} → ${saida}${rodapeInicio >= 0 ? ', rodapé começa em ' + rodapeInicio + 's' : ''}`);
   const args = [
     '-i', entrada,
-    '-i', logo,
-  ];
-
-  if (rodapeInicio >= 0) {
-    args.push('-i', rodape);
-  }
-
-  args.push(
+    '-i', 'logo.png',
+    '-i', 'rodape.png',
     '-filter_complex', filtro,
     '-map', '[outv]',
     '-map', '0:a?',
@@ -155,12 +132,13 @@ async function aplicarLogoERodape(entrada, saida, logo, rodape, rodapeInicio = 2
     '-ac', '2',
     '-r', '30',
     saida
-  );
+  ];
 
   await executarFFmpeg(args);
   registrarTemporario(saida);
 }
 
+// === PROCESSAMENTO PRINCIPAL ===
 (async () => {
   try {
     console.log('🚀 Iniciando preparação da live...');
@@ -184,14 +162,9 @@ async function aplicarLogoERodape(entrada, saida, logo, rodape, rodapeInicio = 2
     const meio = duracaoPrincipal / 2;
     await cortarVideo('video_principal.mp4', 'parte1.mp4', 'parte2.mp4', meio);
 
-    const duracaoParte1 = await obterDuracao('parte1.mp4');
-    const duracaoParte2 = await obterDuracao('parte2.mp4');
-
-    const rodapeTempoParte1 = duracaoParte1 >= 240 ? 240 : -1;
-    const rodapeTempoParte2 = duracaoParte2 >= 240 ? 240 : -1;
-
-    await aplicarLogoERodape('parte1.mp4', 'parte1_editada.mp4', 'logo.png', 'rodape.png', rodapeTempoParte1);
-    await aplicarLogoERodape('parte2.mp4', 'parte2_editada.mp4', 'logo.png', 'rodape.png', rodapeTempoParte2);
+    // Aplica logo e rodapé nas partes cortadas
+    await aplicarLogoERodape('parte1.mp4', 'parte1_editada.mp4');
+    await aplicarLogoERodape('parte2.mp4', 'parte2_editada.mp4');
 
     const sequencia = [
       'parte1_editada.mp4',
@@ -209,7 +182,7 @@ async function aplicarLogoERodape(entrada, saida, logo, rodape, rodapeInicio = 2
       const tsName = path.basename(mp4).replace(/\.mp4$/, '.ts');
       const tsFullPath = path.join(artefatosDir, tsName);
 
-      console.log(`🎞️ Embutindo vídeo completo: ${mp4} → ${tsFullPath}`);
+      console.log(`🎞️ Gerando .ts: ${mp4} → ${tsFullPath}`);
       await executarFFmpeg([
         '-i', mp4,
         '-c:v', 'libx264',
@@ -239,7 +212,7 @@ async function aplicarLogoERodape(entrada, saida, logo, rodape, rodapeInicio = 2
     console.log(`\n📄 Arquivos gerados:`);
     console.log(`📁 Lista .ts salva em: ${tsPathsJson}`);
     console.log(`📡 Info da stream salva em: ${streamInfoJson}`);
-    console.log('\n✅ Pronto para transmissão via \`transmitir.js\`');
+    console.log('\n✅ Pronto para transmissão via `transmitir.js`');
 
   } catch (erro) {
     console.error('\n❌ Erro durante o processo:', erro.message);
