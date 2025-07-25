@@ -144,9 +144,15 @@ async function aplicarLogo(entrada, saida) {
     await baixarArquivo(input.video_principal, 'video_principal.mp4');
     await baixarArquivo(input.logo_id, 'logo.png', false);
 
-    // Baixar rodapé SEM reencode e SALVAR fixo dentro de artefatos/video_final/rodape.png
     const rodapeLocal = path.join(artefatosDir, 'rodape.png');
     await baixarArquivo(input.rodape_id, rodapeLocal, false);
+
+    // Verifica se rodapé foi salvo corretamente
+    if (fs.existsSync(rodapeLocal)) {
+      console.log(`✅ Rodapé salvo com sucesso em: ${rodapeLocal}`);
+    } else {
+      throw new Error(`❌ Rodapé NÃO encontrado em: ${rodapeLocal}`);
+    }
 
     if (input.video_inicial) await baixarArquivo(input.video_inicial, 'video_inicial.mp4');
     if (input.video_miraplay) await baixarArquivo(input.video_miraplay, 'video_miraplay.mp4');
@@ -201,9 +207,7 @@ async function aplicarLogo(entrada, saida) {
       tsList.push(tsFullPath);
     }
 
-    // NÃO adicionar rodapé na lista de ts (é uma imagem)
-    // tsList.push(rodapeLocal); // REMOVIDO
-
+    // Gerar metadados
     const tsPathsJson = path.join(artefatosDir, 'ts_paths.json');
     const streamInfoJson = path.join(artefatosDir, 'stream_info.json');
 
@@ -216,6 +220,24 @@ async function aplicarLogo(entrada, saida) {
     console.log('\n✅ Preparação concluída.');
     console.log(`📄 Arquivos gerados em: ${artefatosDir}`);
     console.log(`🧾 ts_paths.json e stream_info.json criados com sucesso.`);
+    console.log(`🖼️ Rodapé incluído no artefato: ${rodapeLocal}`);
+
+    // Listar conteúdo final do artefato
+    console.log('\n📂 Estrutura final do artefato:');
+    function listarArquivos(dir, prefix = '') {
+      fs.readdirSync(dir).forEach(item => {
+        const fullPath = path.join(dir, item);
+        const stats = fs.statSync(fullPath);
+        if (stats.isDirectory()) {
+          console.log(`${prefix}📁 ${item}`);
+          listarArquivos(fullPath, prefix + '  ');
+        } else {
+          console.log(`${prefix}📄 ${item}`);
+        }
+      });
+    }
+
+    listarArquivos(artefatosDir);
 
   } catch (erro) {
     console.error('\n❌ Erro durante o processo:', erro.message);
