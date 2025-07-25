@@ -147,7 +147,6 @@ async function aplicarLogo(entrada, saida) {
     const rodapeLocal = path.join(artefatosDir, 'rodape.png');
     await baixarArquivo(input.rodape_id, rodapeLocal, false);
 
-    // Verifica se rodapé foi salvo corretamente
     if (fs.existsSync(rodapeLocal)) {
       console.log(`✅ Rodapé salvo com sucesso em: ${rodapeLocal}`);
     } else {
@@ -207,7 +206,7 @@ async function aplicarLogo(entrada, saida) {
       tsList.push(tsFullPath);
     }
 
-    // Gerar metadados
+    // ✅ Gerar metadados (com rodape.png já incluso na pasta artefato)
     const tsPathsJson = path.join(artefatosDir, 'ts_paths.json');
     const streamInfoJson = path.join(artefatosDir, 'stream_info.json');
 
@@ -219,8 +218,7 @@ async function aplicarLogo(entrada, saida) {
 
     console.log('\n✅ Preparação concluída.');
     console.log(`📄 Arquivos gerados em: ${artefatosDir}`);
-    console.log(`🧾 ts_paths.json e stream_info.json criados com sucesso.`);
-    console.log(`🖼️ Rodapé incluído no artefato: ${rodapeLocal}`);
+    console.log(`🧾 ts_paths.json, stream_info.json e rodape.png prontos para compactação.`);
 
     // Listar conteúdo final do artefato
     console.log('\n📂 Estrutura final do artefato:');
