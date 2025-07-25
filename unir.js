@@ -5,6 +5,7 @@ const { spawn } = require('child_process');
 
 const keyFile = path.join(os.homedir(), '.config', 'rclone', 'rclone.conf');
 const input = JSON.parse(fs.readFileSync('input.json', 'utf-8'));
+
 const artefatosDir = path.resolve('artefatos/video_final');
 fs.mkdirSync(artefatosDir, { recursive: true });
 
@@ -28,7 +29,7 @@ function limparTemporarios() {
   }
 }
 
-async function executarFFmpeg(args) {
+function executarFFmpeg(args) {
   return new Promise((resolve, reject) => {
     console.log(`⚙️ Executando FFmpeg: ffmpeg ${args.join(' ')}`);
     const ffmpeg = spawn('ffmpeg', ['-y', ...args]);
@@ -41,7 +42,7 @@ async function executarFFmpeg(args) {
   });
 }
 
-async function obterDuracao(video) {
+function obterDuracao(video) {
   return new Promise((resolve, reject) => {
     const ffprobe = spawn('ffprobe', [
       '-v', 'error',
@@ -58,7 +59,7 @@ async function obterDuracao(video) {
   });
 }
 
-async function baixarArquivo(remoto, destino, reencode = true) {
+function baixarArquivo(remoto, destino, reencode = true) {
   return new Promise((resolve, reject) => {
     console.log(`⬇️ Baixando: ${remoto}`);
     const rclone = spawn('rclone', ['copy', `meudrive:${remoto}`, '.', '--config', keyFile]);
@@ -75,7 +76,7 @@ async function baixarArquivo(remoto, destino, reencode = true) {
         fs.renameSync(temp, destino);
         console.log(`✅ Reencodado: ${destino}`);
       }
-      registrarTemporario(destino);
+      registrarTemporario(destino); // pode comentar essa linha se não quiser remover vídeo final
       resolve();
     });
   });
@@ -138,7 +139,7 @@ async function aplicarLogoERodape(entrada, saida) {
   registrarTemporario(saida);
 }
 
-// === PROCESSAMENTO PRINCIPAL ===
+// === EXECUÇÃO PRINCIPAL ===
 (async () => {
   try {
     console.log('🚀 Iniciando preparação da live...');
@@ -162,7 +163,6 @@ async function aplicarLogoERodape(entrada, saida) {
     const meio = duracaoPrincipal / 2;
     await cortarVideo('video_principal.mp4', 'parte1.mp4', 'parte2.mp4', meio);
 
-    // Aplica logo e rodapé nas partes cortadas
     await aplicarLogoERodape('parte1.mp4', 'parte1_editada.mp4');
     await aplicarLogoERodape('parte2.mp4', 'parte2_editada.mp4');
 
@@ -177,6 +177,7 @@ async function aplicarLogoERodape(entrada, saida) {
     ].filter(v => fs.existsSync(v));
 
     const tsList = [];
+
     console.log('\n📦 Iniciando geração dos arquivos .ts para transmissão...');
     for (const mp4 of sequencia) {
       const tsName = path.basename(mp4).replace(/\.mp4$/, '.ts');
@@ -209,10 +210,9 @@ async function aplicarLogoERodape(entrada, saida) {
       stream_url: input.stream_url
     }, null, 2));
 
-    console.log(`\n📄 Arquivos gerados:`);
-    console.log(`📁 Lista .ts salva em: ${tsPathsJson}`);
-    console.log(`📡 Info da stream salva em: ${streamInfoJson}`);
-    console.log('\n✅ Pronto para transmissão via `transmitir.js`');
+    console.log('\n✅ Preparação concluída.');
+    console.log(`📄 Arquivos gerados em: ${artefatosDir}`);
+    console.log(`🧾 ts_paths.json e stream_info.json criados com sucesso.`);
 
   } catch (erro) {
     console.error('\n❌ Erro durante o processo:', erro.message);
