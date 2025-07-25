@@ -76,7 +76,7 @@ function baixarArquivo(remoto, destino, reencode = true) {
         fs.renameSync(temp, destino);
         console.log(`✅ Reencodado: ${destino}`);
       }
-      registrarTemporario(destino); // pode comentar essa linha se não quiser remover vídeo final
+      registrarTemporario(destino);
       resolve();
     });
   });
@@ -143,7 +143,10 @@ async function aplicarLogo(entrada, saida) {
 
     await baixarArquivo(input.video_principal, 'video_principal.mp4');
     await baixarArquivo(input.logo_id, 'logo.png', false);
-    await baixarArquivo(input.rodape_id, path.join(artefatosDir, 'rodape.png'), false); // Salvar rodapé como artefato
+
+    // Salvar rodapé como artefato (sem reencode)
+    const rodapeLocal = path.join(artefatosDir, 'rodape.png');
+    await baixarArquivo(input.rodape_id, rodapeLocal, false);
 
     if (input.video_inicial) await baixarArquivo(input.video_inicial, 'video_inicial.mp4');
     if (input.video_miraplay) await baixarArquivo(input.video_miraplay, 'video_miraplay.mp4');
@@ -197,6 +200,9 @@ async function aplicarLogo(entrada, saida) {
 
       tsList.push(tsFullPath);
     }
+
+    // Inclui rodapé no JSON (como imagem)
+    tsList.push(rodapeLocal);
 
     const tsPathsJson = path.join(artefatosDir, 'ts_paths.json');
     const streamInfoJson = path.join(artefatosDir, 'stream_info.json');
