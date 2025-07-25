@@ -144,7 +144,7 @@ async function aplicarLogo(entrada, saida) {
     await baixarArquivo(input.video_principal, 'video_principal.mp4');
     await baixarArquivo(input.logo_id, 'logo.png', false);
 
-    // Salvar rodapé como artefato (sem reencode)
+    // Baixar rodapé SEM reencode e SALVAR fixo dentro de artefatos/video_final/rodape.png
     const rodapeLocal = path.join(artefatosDir, 'rodape.png');
     await baixarArquivo(input.rodape_id, rodapeLocal, false);
 
@@ -201,8 +201,8 @@ async function aplicarLogo(entrada, saida) {
       tsList.push(tsFullPath);
     }
 
-    // ❌ NÃO incluir rodapé no JSON (corrigido!)
-    // tsList.push(rodapeLocal); ← REMOVIDO
+    // NÃO adicionar rodapé na lista de ts (é uma imagem)
+    // tsList.push(rodapeLocal); // REMOVIDO
 
     const tsPathsJson = path.join(artefatosDir, 'ts_paths.json');
     const streamInfoJson = path.join(artefatosDir, 'stream_info.json');
