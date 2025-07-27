@@ -1,4 +1,3 @@
-// video_processador.js
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -6,9 +5,10 @@ const { spawn } = require('child_process');
 
 const keyFile = path.join(os.homedir(), '.config', 'rclone', 'rclone.conf');
 const input = JSON.parse(fs.readFileSync('input.json', 'utf-8'));
-const artefatosDir = path.resolve('artefatos/video_final');
 
+const artefatosDir = path.resolve('artefatos/video_final');
 fs.mkdirSync(artefatosDir, { recursive: true });
+
 const arquivosTemporarios = [];
 
 function registrarTemporario(caminho) {
@@ -108,17 +108,27 @@ async function cortarVideo(input, out1, out2, meio) {
   registrarTemporario(out2);
 }
 
-async function aplicarLogoERodape(entrada, saida, offsetSegundos) {
-  const rodapeInicioOriginal = 240;
-  const rodapeFimOriginal = 300;
-  const animDuracao = 1;
+/**
+ * Aplica logo e rodapé com animação de entrada e saída no intervalo especificado
+ * O rodapé inicia como uma linha vertical no centro (largura 10px), cresce em altura,
+ * depois se expande horizontalmente para largura total. Na saída, a animação é invertida.
+ * 
+ * @param {string} entrada - arquivo de vídeo de entrada (parte cortada)
+ * @param {string} saida - arquivo de vídeo de saída (editado)
+ * @param {number} offsetSegundos - tempo em segundos do início do vídeo cortado em relação ao original
+ */
+async function aplicarLogoERodapeAnimado(entrada, saida, offsetSegundos) {
+  const rodapeInicioOriginal = 240; // 4 minutos
+  const rodapeFimOriginal = 300;    // 5 minutos
+  const rodapeDuracao = rodapeFimOriginal - rodapeInicioOriginal;
 
+  // Ajusta tempo para o vídeo cortado
   const tempoInicioRelativo = rodapeInicioOriginal - offsetSegundos;
   const tempoFimRelativo = rodapeFimOriginal - offsetSegundos;
-  const duracaoEntrada = await obterDuracao(entrada);
 
-  if (tempoFimRelativo <= 0 || tempoInicioRelativo >= duracaoEntrada) {
-    console.log(`⚠️ Rodapé fora do intervalo da parte "${entrada}", pulando aplicação...`);
+  // Se rodapé não aparece nesta parte, aplica só logo sem rodapé
+  if (tempoFimRelativo <= 0 || tempoInicioRelativo >= await obterDuracao(entrada)) {
+    console.log(`⚠️ Rodapé fora do intervalo da parte "${entrada}", aplicando só logo.`);
     const filtroLogo = `[1:v]scale=-1:120[logo]; [0:v][logo]overlay=W-w-1:15[outv]`;
     const argsLogo = [
       '-i', entrada,
@@ -141,43 +151,73 @@ async function aplicarLogoERodape(entrada, saida, offsetSegundos) {
     return;
   }
 
+  // Clampa tempos para dentro do vídeo cortado
   const inicioExibicao = Math.max(tempoInicioRelativo, 0);
-  const fimExibicao = Math.min(tempoFimRelativo, duracaoEntrada);
-  const entradaStart = inicioExibicao;
-  const entradaEnd = Math.min(entradaStart + animDuracao, fimExibicao);
-  const saidaStart = Math.max(fimExibicao - animDuracao, entradaEnd);
-  const saidaEnd = fimExibicao;
+  const fimExibicao = Math.min(tempoFimRelativo, await obterDuracao(entrada));
 
-  console.log(`🖼️ Aplicando logo e rodapé animado em "${entrada}"`);
-  console.log(`📍 Rodapé aparece entre ${inicioExibicao.toFixed(2)}s e ${fimExibicao.toFixed(2)}s`);
-  console.log(`🎬 Animação entrada: ${entradaStart.toFixed(2)}s → ${entradaEnd.toFixed(2)}s`);
-  console.log(`🎬 Animação saída: ${saidaStart.toFixed(2)}s → ${saidaEnd.toFixed(2)}s`);
+  console.log(`🖼️ Aplicando rodapé animado em "${entrada}"`);
+  console.log(`⏰ Rodapé visível entre ${inicioExibicao.toFixed(2)}s e ${fimExibicao.toFixed(2)}s`);
 
+  // Define os tempos para animação
+  const duracaoEntradaVertical = 2;  // tempo da linha crescer verticalmente (s)
+  const inicioExpandirHorizontal = inicioExibicao + duracaoEntradaVertical; // começa expandir horizontalmente
+  const duracaoExpandirHorizontal = 2; // duração da expansão horizontal
+  const fimExpandirHorizontal = inicioExpandirHorizontal + duracaoExpandirHorizontal;
+
+  const duracaoSaidaHorizontal = 2; // duração retração horizontal na saída
+  const inicioRetrairHorizontal = fimExibicao - duracaoSaidaHorizontal;
+  const fimSairVertical = fimExibicao;
+
+  // O filtro escala animado para rodapé
+  // escala largura:
+  // - entrada: 10px (linha vertical)
+  // - após 2s cresce altura linear
+  // - depois expande largura para 1280px
+  // saída: retrai largura para 10px, depois altura para 0 (sai para baixo)
   const filtro = `
-    [1:v]scale=-1:120[logo];
-    [2:v]scale=1280:-1,format=rgba[rodape];
-    [0:v][logo]overlay=W-w-1:15[tmp];
-    [tmp][rodape]overlay=0:
-      'if(between(t\\,${entradaStart}\\,${entradaEnd})\\,
-        H - h + (1 - (t - ${entradaStart}) / ${animDuracao}) * h\\,
-        if(between(t\\,${entradaEnd}\\,${saidaStart})\\,
-          H - h - 5\\,
-          if(between(t\\,${saidaStart}\\,${saidaEnd})\\,
-            H - h - 5 + ((t - ${saidaStart}) / ${animDuracao}) * h\\,
-            10000
+    [1:v]format=rgba,
+    scale='
+      if(lt(t,${inicioExibicao}),
+        0,
+        if(lt(t,${inicioExibicao + duracaoEntradaVertical}),
+          10,
+          if(lt(t,${fimExpandirHorizontal}),
+            (t-${inicioExpandirHorizontal})/${duracaoExpandirHorizontal}*iw,
+            if(lt(t,${inicioRetrairHorizontal}),
+              iw,
+              if(lt(t,${fimSairVertical}),
+                iw-(t-${inicioRetrairHorizontal})/${duracaoSaidaHorizontal}*(iw-10),
+                0
+              )
+            )
           )
         )
+      )
+    ':
+    '
+      if(lt(t,${inicioExibicao}),
+        0,
+        if(lt(t,${inicioExibicao + duracaoEntradaVertical}),
+          (t-${inicioExibicao})/${duracaoEntradaVertical}*ih/2,
+          if(lt(t,${inicioRetrairHorizontal}),
+            ih/2,
+            if(lt(t,${fimSairVertical}),
+              ih/2-(t-${inicioRetrairHorizontal})/${duracaoSaidaHorizontal}*(ih/2),
+              0
+            )
+          )
+        )
+      )
+    '
+    [rodape_anim];
+    
+    [0:v][rodape_anim]overlay=x='
+      if(lt(t,${fimExpandirHorizontal}),
+        (W-10)/2,
+        0
       )':
-      'if(between(t\\,${entradaStart}\\,${entradaEnd})\\,
-        (t - ${entradaStart}) / ${animDuracao}\\,
-        if(between(t\\,${entradaEnd}\\,${saidaStart})\\,
-          1\\,
-          if(between(t\\,${saidaStart}\\,${saidaEnd})\\,
-            1 - (t - ${saidaStart}) / ${animDuracao}\\,
-            0
-          )
-        )
-      )'[outv]
+    y=H-h
+    [outv]
   `.replace(/\s+/g, ' ');
 
   const args = [
@@ -202,6 +242,7 @@ async function aplicarLogoERodape(entrada, saida, offsetSegundos) {
   registrarTemporario(saida);
 }
 
+// === EXECUÇÃO PRINCIPAL ===
 (async () => {
   try {
     console.log('🚀 Iniciando preparação da live...');
@@ -225,8 +266,9 @@ async function aplicarLogoERodape(entrada, saida, offsetSegundos) {
     const meio = duracaoPrincipal / 2;
     await cortarVideo('video_principal.mp4', 'parte1.mp4', 'parte2.mp4', meio);
 
-    await aplicarLogoERodape('parte1.mp4', 'parte1_editada.mp4', 0);
-    await aplicarLogoERodape('parte2.mp4', 'parte2_editada.mp4', meio);
+    // Aplicar logo e rodapé animado nas partes, passando offset relativo do corte
+    await aplicarLogoERodapeAnimado('parte1.mp4', 'parte1_editada.mp4', 0);
+    await aplicarLogoERodapeAnimado('parte2.mp4', 'parte2_editada.mp4', meio);
 
     const sequencia = [
       'parte1_editada.mp4',
