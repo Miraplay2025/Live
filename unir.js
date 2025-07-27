@@ -108,27 +108,18 @@ async function cortarVideo(input, out1, out2, meio) {
   registrarTemporario(out2);
 }
 
-/**
- * Aplica logo e rodapé animado com entrada e saída entre tempos definidos,
- * considerando o offset do vídeo cortado.
- * 
- * @param {string} entrada - arquivo de vídeo de entrada (parte cortada)
- * @param {string} saida - arquivo de vídeo de saída (editado)
- * @param {number} offsetSegundos - tempo em segundos do início do vídeo cortado no original
- */
 async function aplicarLogoERodape(entrada, saida, offsetSegundos) {
-  const rodapeInicioOriginal = 240; // 4 minutos em segundos
-  const rodapeFimOriginal = 300;    // 5 minutos em segundos
-  const animDuracao = 1;            // duração da animação de entrada/saída em segundos
+  const rodapeInicioOriginal = 240;
+  const rodapeFimOriginal = 300;
+  const animDuracao = 1;
 
-  // Ajusta tempos relativos ao vídeo cortado
   const tempoInicioRelativo = rodapeInicioOriginal - offsetSegundos;
   const tempoFimRelativo = rodapeFimOriginal - offsetSegundos;
 
-  // Se rodapé não estiver na parte do vídeo, só aplicar logo
-  if (tempoFimRelativo <= 0 || tempoInicioRelativo >= await obterDuracao(entrada)) {
+  const duracaoEntrada = await obterDuracao(entrada);
+
+  if (tempoFimRelativo <= 0 || tempoInicioRelativo >= duracaoEntrada) {
     console.log(`⚠️ Rodapé fora do intervalo da parte "${entrada}", pulando aplicação...`);
-    // Apenas aplicar logo
     const filtroLogo = `[1:v]scale=-1:120[logo]; [0:v][logo]overlay=W-w-1:15[outv]`;
     const argsLogo = [
       '-i', entrada,
@@ -151,11 +142,8 @@ async function aplicarLogoERodape(entrada, saida, offsetSegundos) {
     return;
   }
 
-  const duracaoEntrada = await obterDuracao(entrada);
   const inicioExibicao = Math.max(tempoInicioRelativo, 0);
   const fimExibicao = Math.min(tempoFimRelativo, duracaoEntrada);
-
-  // Definir tempos para animação de entrada e saída
   const entradaStart = inicioExibicao;
   const entradaEnd = Math.min(inicioExibicao + animDuracao, fimExibicao);
   const saidaStart = Math.max(fimExibicao - animDuracao, entradaEnd);
@@ -166,28 +154,17 @@ async function aplicarLogoERodape(entrada, saida, offsetSegundos) {
   console.log(`🎬 Animação entrada: ${entradaStart.toFixed(2)}s → ${entradaEnd.toFixed(2)}s`);
   console.log(`🎬 Animação saída: ${saidaStart.toFixed(2)}s → ${saidaEnd.toFixed(2)}s`);
 
-  // Filtro FFmpeg para animar rodapé com fade e movimento vertical
   const filtro = `
     [1:v]scale=-1:120[logo];
     [2:v]scale=1280:-1,format=rgba[rodape];
-
     [0:v][logo]overlay=W-w-1:15[tmp];
-
     [tmp][rodape]overlay=0:
-      'if(between(t,${entradaStart},${entradaEnd}), H - h + ((${entradaEnd} - t) / ${animDuracao}) * h,
+      'if(between(t,${entradaStart},${entradaEnd}), H - (t - ${entradaStart})/${animDuracao}*H,
         if(between(t,${entradaEnd},${saidaStart}), H - h - 5,
-          if(between(t,${saidaStart},${saidaEnd}), H - h - 5 + ((t - ${saidaStart}) / ${animDuracao}) * h,
-            NAN
-          )
-        )
-      )':
-      'if(between(t,${entradaStart},${entradaEnd}), (t - ${entradaStart}) / ${animDuracao},
+          if(between(t,${saidaStart},${saidaEnd}), H - h - 5 + (t - ${saidaStart})/${animDuracao}*H, 10000)))':
+      'if(between(t,${entradaStart},${entradaEnd}), (t - ${entradaStart})/${animDuracao},
         if(between(t,${entradaEnd},${saidaStart}), 1,
-          if(between(t,${saidaStart},${saidaEnd}), 1 - ((t - ${saidaStart}) / ${animDuracao}),
-            0
-          )
-        )
-      )'[outv]
+          if(between(t,${saidaStart},${saidaEnd}), 1 - (t - ${saidaStart})/${animDuracao}, 0)))'[outv]
   `.replace(/\s+/g, ' ');
 
   const args = [
@@ -212,7 +189,6 @@ async function aplicarLogoERodape(entrada, saida, offsetSegundos) {
   registrarTemporario(saida);
 }
 
-// === EXECUÇÃO PRINCIPAL ===
 (async () => {
   try {
     console.log('🚀 Iniciando preparação da live...');
@@ -236,7 +212,6 @@ async function aplicarLogoERodape(entrada, saida, offsetSegundos) {
     const meio = duracaoPrincipal / 2;
     await cortarVideo('video_principal.mp4', 'parte1.mp4', 'parte2.mp4', meio);
 
-    // Aplicar logo e rodapé animado nas partes, passando o offset do tempo relativo
     await aplicarLogoERodape('parte1.mp4', 'parte1_editada.mp4', 0);
     await aplicarLogoERodape('parte2.mp4', 'parte2_editada.mp4', meio);
 
