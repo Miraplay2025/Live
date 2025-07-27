@@ -108,16 +108,30 @@ async function cortarVideo(input, out1, out2, meio) {
   registrarTemporario(out2);
 }
 
-async function aplicarLogo(entrada, saida) {
+function gerarTempoRodape() {
+  const inicio = 240;
+  const max = 250 - 10;
+  return Math.floor(Math.random() * (max - inicio + 1)) + inicio;
+}
+
+async function aplicarLogoERodape(entrada, saida) {
+  const tempo = gerarTempoRodape();
+  const tempoFim = tempo + 10;
+
+  console.log(`🖼️ Aplicando logo e rodapé em "${entrada}"`);
+  console.log(`📍 Rodapé será exibido entre ${tempo}s e ${tempoFim}s`);
+
   const filtro = `
     [1:v]scale=-1:120[logo];
-    [0:v]setpts=PTS-STARTPTS[base];
-    [base][logo]overlay=W-w-1:15[outv]
-  `.replace(/\n/g, '').replace(/\s+/g, ' ').trim();
+    [2:v]scale=1280:-1[rodape];
+    [0:v][logo]overlay=W-w-1:15[tmp];
+    [tmp][rodape]overlay=0:'if(between(t,${tempo},${tempoFim}),H-h-5,NAN)'[outv]
+  `.replace(/\s+/g, ' ');
 
   const args = [
     '-i', entrada,
     '-i', 'logo.png',
+    '-i', 'rodape.png',
     '-filter_complex', filtro,
     '-map', '[outv]',
     '-map', '0:a?',
@@ -143,15 +157,7 @@ async function aplicarLogo(entrada, saida) {
 
     await baixarArquivo(input.video_principal, 'video_principal.mp4');
     await baixarArquivo(input.logo_id, 'logo.png', false);
-
-    const rodapeLocal = path.join(artefatosDir, 'rodape.png');
-    await baixarArquivo(input.rodape_id, rodapeLocal, false);
-
-    if (fs.existsSync(rodapeLocal)) {
-      console.log(`✅ Rodapé salvo com sucesso em: ${rodapeLocal}`);
-    } else {
-      throw new Error(`❌ Rodapé NÃO encontrado em: ${rodapeLocal}`);
-    }
+    await baixarArquivo(input.rodape_id, 'rodape.png', false);
 
     if (input.video_inicial) await baixarArquivo(input.video_inicial, 'video_inicial.mp4');
     if (input.video_miraplay) await baixarArquivo(input.video_miraplay, 'video_miraplay.mp4');
@@ -168,8 +174,8 @@ async function aplicarLogo(entrada, saida) {
     const meio = duracaoPrincipal / 2;
     await cortarVideo('video_principal.mp4', 'parte1.mp4', 'parte2.mp4', meio);
 
-    await aplicarLogo('parte1.mp4', 'parte1_editada.mp4');
-    await aplicarLogo('parte2.mp4', 'parte2_editada.mp4');
+    await aplicarLogoERodape('parte1.mp4', 'parte1_editada.mp4');
+    await aplicarLogoERodape('parte2.mp4', 'parte2_editada.mp4');
 
     const sequencia = [
       'parte1_editada.mp4',
@@ -206,7 +212,6 @@ async function aplicarLogo(entrada, saida) {
       tsList.push(tsFullPath);
     }
 
-    // ✅ Gerar metadados (com rodape.png já incluso na pasta artefato)
     const tsPathsJson = path.join(artefatosDir, 'ts_paths.json');
     const streamInfoJson = path.join(artefatosDir, 'stream_info.json');
 
@@ -218,27 +223,11 @@ async function aplicarLogo(entrada, saida) {
 
     console.log('\n✅ Preparação concluída.');
     console.log(`📄 Arquivos gerados em: ${artefatosDir}`);
-    console.log(`🧾 ts_paths.json, stream_info.json e rodape.png prontos para compactação.`);
-
-    // Listar conteúdo final do artefato
-    console.log('\n📂 Estrutura final do artefato:');
-    function listarArquivos(dir, prefix = '') {
-      fs.readdirSync(dir).forEach(item => {
-        const fullPath = path.join(dir, item);
-        const stats = fs.statSync(fullPath);
-        if (stats.isDirectory()) {
-          console.log(`${prefix}📁 ${item}`);
-          listarArquivos(fullPath, prefix + '  ');
-        } else {
-          console.log(`${prefix}📄 ${item}`);
-        }
-      });
-    }
-
-    listarArquivos(artefatosDir);
+    console.log(`🧾 ts_paths.json e stream_info.json criados com sucesso.`);
 
   } catch (erro) {
     console.error('\n❌ Erro durante o processo:', erro.message);
+    process.exit(1);
   } finally {
     limparTemporarios();
   }
