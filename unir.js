@@ -158,22 +158,22 @@ async function aplicarLogoERodape(entrada, saida, offsetSegundos) {
     [2:v]scale=1280:-1,format=rgba[rodape];
     [0:v][logo]overlay=W-w-1:15[tmp];
     [tmp][rodape]overlay=0:
-      'if(between(t,${entradaStart},${entradaEnd}),
-        H - h + (1 - (t - ${entradaStart}) / ${animDuracao}) * h,
-        if(between(t,${entradaEnd},${saidaStart}),
-          H - h - 5,
-          if(between(t,${saidaStart},${saidaEnd}),
-            H - h - 5 + ((t - ${saidaStart}) / ${animDuracao}) * h,
+      'if(between(t\\,${entradaStart}\\,${entradaEnd})\\,
+        H - h + (1 - (t - ${entradaStart}) / ${animDuracao}) * h\\,
+        if(between(t\\,${entradaEnd}\\,${saidaStart})\\,
+          H - h - 5\\,
+          if(between(t\\,${saidaStart}\\,${saidaEnd})\\,
+            H - h - 5 + ((t - ${saidaStart}) / ${animDuracao}) * h\\,
             10000
           )
         )
       )':
-      'if(between(t,${entradaStart},${entradaEnd}),
-        (t - ${entradaStart}) / ${animDuracao},
-        if(between(t,${entradaEnd},${saidaStart}),
-          1,
-          if(between(t,${saidaStart},${saidaEnd}),
-            1 - (t - ${saidaStart}) / ${animDuracao},
+      'if(between(t\\,${entradaStart}\\,${entradaEnd})\\,
+        (t - ${entradaStart}) / ${animDuracao}\\,
+        if(between(t\\,${entradaEnd}\\,${saidaStart})\\,
+          1\\,
+          if(between(t\\,${saidaStart}\\,${saidaEnd})\\,
+            1 - (t - ${saidaStart}) / ${animDuracao}\\,
             0
           )
         )
