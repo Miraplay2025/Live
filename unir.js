@@ -1,3 +1,4 @@
+// video_processador.js
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -5,10 +6,9 @@ const { spawn } = require('child_process');
 
 const keyFile = path.join(os.homedir(), '.config', 'rclone', 'rclone.conf');
 const input = JSON.parse(fs.readFileSync('input.json', 'utf-8'));
-
 const artefatosDir = path.resolve('artefatos/video_final');
-fs.mkdirSync(artefatosDir, { recursive: true });
 
+fs.mkdirSync(artefatosDir, { recursive: true });
 const arquivosTemporarios = [];
 
 function registrarTemporario(caminho) {
@@ -115,7 +115,6 @@ async function aplicarLogoERodape(entrada, saida, offsetSegundos) {
 
   const tempoInicioRelativo = rodapeInicioOriginal - offsetSegundos;
   const tempoFimRelativo = rodapeFimOriginal - offsetSegundos;
-
   const duracaoEntrada = await obterDuracao(entrada);
 
   if (tempoFimRelativo <= 0 || tempoInicioRelativo >= duracaoEntrada) {
@@ -145,7 +144,7 @@ async function aplicarLogoERodape(entrada, saida, offsetSegundos) {
   const inicioExibicao = Math.max(tempoInicioRelativo, 0);
   const fimExibicao = Math.min(tempoFimRelativo, duracaoEntrada);
   const entradaStart = inicioExibicao;
-  const entradaEnd = Math.min(inicioExibicao + animDuracao, fimExibicao);
+  const entradaEnd = Math.min(entradaStart + animDuracao, fimExibicao);
   const saidaStart = Math.max(fimExibicao - animDuracao, entradaEnd);
   const saidaEnd = fimExibicao;
 
@@ -159,12 +158,26 @@ async function aplicarLogoERodape(entrada, saida, offsetSegundos) {
     [2:v]scale=1280:-1,format=rgba[rodape];
     [0:v][logo]overlay=W-w-1:15[tmp];
     [tmp][rodape]overlay=0:
-      'if(between(t,${entradaStart},${entradaEnd}), H - (t - ${entradaStart})/${animDuracao}*H,
-        if(between(t,${entradaEnd},${saidaStart}), H - h - 5,
-          if(between(t,${saidaStart},${saidaEnd}), H - h - 5 + (t - ${saidaStart})/${animDuracao}*H, 10000)))':
-      'if(between(t,${entradaStart},${entradaEnd}), (t - ${entradaStart})/${animDuracao},
-        if(between(t,${entradaEnd},${saidaStart}), 1,
-          if(between(t,${saidaStart},${saidaEnd}), 1 - (t - ${saidaStart})/${animDuracao}, 0)))'[outv]
+      'if(between(t,${entradaStart},${entradaEnd}),
+        H - h + (1 - (t - ${entradaStart}) / ${animDuracao}) * h,
+        if(between(t,${entradaEnd},${saidaStart}),
+          H - h - 5,
+          if(between(t,${saidaStart},${saidaEnd}),
+            H - h - 5 + ((t - ${saidaStart}) / ${animDuracao}) * h,
+            10000
+          )
+        )
+      )':
+      'if(between(t,${entradaStart},${entradaEnd}),
+        (t - ${entradaStart}) / ${animDuracao},
+        if(between(t,${entradaEnd},${saidaStart}),
+          1,
+          if(between(t,${saidaStart},${saidaEnd}),
+            1 - (t - ${saidaStart}) / ${animDuracao},
+            0
+          )
+        )
+      )'[outv]
   `.replace(/\s+/g, ' ');
 
   const args = [
