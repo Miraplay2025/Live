@@ -108,24 +108,18 @@ async function cortarVideo(input, out1, out2, meio) {
   registrarTemporario(out2);
 }
 
-function gerarTempoRodape() {
-  const inicio = 240;
-  const max = 250 - 10;
-  return Math.floor(Math.random() * (max - inicio + 1)) + inicio;
-}
-
 async function aplicarLogoERodape(entrada, saida) {
-  const tempo = gerarTempoRodape();
-  const tempoFim = tempo + 10;
+  const tempoInicio = 240;
+  const tempoFim = 300;
 
   console.log(`🖼️ Aplicando logo e rodapé em "${entrada}"`);
-  console.log(`📍 Rodapé será exibido entre ${tempo}s e ${tempoFim}s`);
+  console.log(`📍 Rodapé será exibido entre ${tempoInicio}s (4:00) e ${tempoFim}s (5:00)`);
 
   const filtro = `
     [1:v]scale=-1:120[logo];
     [2:v]scale=1280:-1[rodape];
     [0:v][logo]overlay=W-w-1:15[tmp];
-    [tmp][rodape]overlay=0:'if(between(t,${tempo},${tempoFim}),H-h-5,NAN)'[outv]
+    [tmp][rodape]overlay=0:'if(between(t,${tempoInicio},${tempoFim}),H-h-5,NAN)'[outv]
   `.replace(/\s+/g, ' ');
 
   const args = [
