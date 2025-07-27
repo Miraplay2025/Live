@@ -125,6 +125,7 @@ async function aplicarLogoERodape(entrada, saida, offsetSegundos) {
   const tempoInicioRelativo = rodapeInicioOriginal - offsetSegundos;
   const tempoFimRelativo = rodapeFimOriginal - offsetSegundos;
 
+  // Se rodapé não estiver na parte do vídeo, só aplicar logo
   if (tempoFimRelativo <= 0 || tempoInicioRelativo >= await obterDuracao(entrada)) {
     console.log(`⚠️ Rodapé fora do intervalo da parte "${entrada}", pulando aplicação...`);
     // Apenas aplicar logo
@@ -165,7 +166,7 @@ async function aplicarLogoERodape(entrada, saida, offsetSegundos) {
   console.log(`🎬 Animação entrada: ${entradaStart.toFixed(2)}s → ${entradaEnd.toFixed(2)}s`);
   console.log(`🎬 Animação saída: ${saidaStart.toFixed(2)}s → ${saidaEnd.toFixed(2)}s`);
 
-  // Filtro FFmpeg com animação baseada em escala horizontal e deslocamento vertical para o rodapé
+  // Filtro FFmpeg para animar rodapé com fade e movimento vertical
   const filtro = `
     [1:v]scale=-1:120[logo];
     [2:v]scale=1280:-1,format=rgba[rodape];
@@ -173,46 +174,21 @@ async function aplicarLogoERodape(entrada, saida, offsetSegundos) {
     [0:v][logo]overlay=W-w-1:15[tmp];
 
     [tmp][rodape]overlay=0:
-      'if(
-        between(t,${entradaStart},${entradaEnd}),
-        H - h + ((${entradaEnd} - t) / ${animDuracao}) * h,
-        if(
-          between(t,${entradaEnd},${saidaStart}),
-          H - h - 5,
-          if(
-            between(t,${saidaStart},${saidaEnd}),
-            H - h - 5 + ((t - ${saidaStart}) / ${animDuracao}) * h,
+      'if(between(t,${entradaStart},${entradaEnd}), H - h + ((${entradaEnd} - t) / ${animDuracao}) * h,
+        if(between(t,${entradaEnd},${saidaStart}), H - h - 5,
+          if(between(t,${saidaStart},${saidaEnd}), H - h - 5 + ((t - ${saidaStart}) / ${animDuracao}) * h,
             NAN
           )
         )
       )':
-      'if(
-        between(t,${entradaStart},${entradaEnd}),
-        (t - ${entradaStart}) / ${animDuracao},
-        if(
-          between(t,${entradaEnd},${saidaStart}),
-          1,
-          if(
-            between(t,${saidaStart},${saidaEnd}),
-            1 - ((t - ${saidaStart}) / ${animDuracao}),
+      'if(between(t,${entradaStart},${entradaEnd}), (t - ${entradaStart}) / ${animDuracao},
+        if(between(t,${entradaEnd},${saidaStart}), 1,
+          if(between(t,${saidaStart},${saidaEnd}), 1 - ((t - ${saidaStart}) / ${animDuracao}),
             0
           )
         )
       )'[outv]
   `.replace(/\s+/g, ' ');
-
-  /*
-    Explicação do filtro:
-    - Overlay y (posição vertical):
-      - Durante entrada: desce do fundo (fora da tela) até o topo do rodapé (H-h)
-      - Durante exibição normal: fixa em H-h-5 (quase no fundo, 5px acima)
-      - Durante saída: sobe para fora da tela
-      - Fora do intervalo: não aparece (NAN)
-    - Overlay alpha (opacidade) simulada pelo segundo parâmetro do overlay que no FFmpeg controla a opacidade (se o formato permitir)
-      - Cresce de 0 para 1 na entrada
-      - Mantém 1 na exibição
-      - Decresce de 1 para 0 na saída
-  */
 
   const args = [
     '-i', entrada,
