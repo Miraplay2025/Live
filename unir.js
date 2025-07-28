@@ -142,16 +142,16 @@ async function aplicarLogoERodape(entrada, saida, offsetSegundos) {
 
   const inicioExibicao = Math.max(tempoInicioRelativo, 0);
   const fimExibicao = Math.min(tempoFimRelativo, duracaoVideo);
-  const animDur = 1.0;
+  const animDur = 1.5;
 
   const yRodape = `
     if(lte(t,${inicioExibicao}), NAN,
       if(lt(t,${inicioExibicao + animDur}),
-        H - ( (t - ${inicioExibicao})/${animDur} ) * (h + 5),
+        H - sin((t - ${inicioExibicao})/${animDur} * PI/2)*(h+5),
         if(lt(t,${fimExibicao - animDur}),
           H - h - 5,
           if(lt(t,${fimExibicao}),
-            H - h - 5 + ( (t - ${fimExibicao - animDur})/${animDur} ) * (h + 5),
+            H - h - 5 + sin((t - ${fimExibicao - animDur})/${animDur} * PI/2)*(h+5),
             NAN
           )
         )
@@ -184,7 +184,7 @@ async function aplicarLogoERodape(entrada, saida, offsetSegundos) {
     saida
   ];
 
-  console.log(`🖼️ Aplicando logo e rodapé com animação em "${entrada}"`);
+  console.log(`🖼️ Aplicando logo e rodapé com animação suave em "${entrada}"`);
   console.log(`📍 Rodapé de ${inicioExibicao.toFixed(2)}s a ${fimExibicao.toFixed(2)}s`);
   await executarFFmpeg(args);
   registrarTemporario(saida);
